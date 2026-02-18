@@ -1,6 +1,6 @@
 # CI pipeline for OpenKoi
 # Runs on every push and pull request
-# Matrix: ubuntu-latest, macos-latest, windows-latest
+# Matrix: ubuntu-latest, macos-latest
 
 name: CI
 
@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
 
     steps:
       - uses: actions/checkout@v4

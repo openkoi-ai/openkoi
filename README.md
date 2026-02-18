@@ -68,7 +68,7 @@ OpenKoi auto-discovers credentials in this order:
      Tools (MCP / WASM / Rhai)
 ```
 
-Built with Rust + Tokio. < 10ms startup, ~5MB idle memory, ~20MB binary.
+Supported platforms: **Linux** (x86_64, ARM64) and **macOS** (Intel, Apple Silicon). Built with Rust + Tokio. < 10ms startup, ~5MB idle memory, ~20MB binary.
 
 ## Documentation
 
