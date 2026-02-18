@@ -9,23 +9,53 @@ use super::ollama::OllamaProvider;
 use super::openai::OpenAIProvider;
 use super::openai_compat::OpenAICompatProvider;
 use super::{ModelProvider, ModelRef};
+use crate::infra::paths;
+use crate::onboarding::discovery;
 
-/// Discover all available providers from env vars and local services.
+/// Discover all available providers from env vars, saved credentials, external CLIs,
+/// and local services.
 pub async fn discover_providers() -> Vec<Arc<dyn ModelProvider>> {
     let mut providers: Vec<Arc<dyn ModelProvider>> = Vec::new();
+    let mut seen_providers: Vec<String> = Vec::new();
 
-    // Check env vars in priority order
-    if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
+    // Helper: resolve an API key from env var first, then saved credential file.
+    async fn resolve_key(env_var: &str, provider_id: &str) -> Option<String> {
+        if let Ok(key) = std::env::var(env_var) {
+            return Some(key);
+        }
+        // Fall back to saved credential file (~/.openkoi/credentials/{provider}.key)
+        load_saved_key(provider_id).await
+    }
+
+    // --- Anthropic: env var > saved file > Claude CLI > macOS Keychain ---
+    let anthropic_key = resolve_key("ANTHROPIC_API_KEY", "anthropic").await;
+    let anthropic_key = match anthropic_key {
+        Some(k) => Some(k),
+        None => discovery::load_claude_cli_token().await,
+    };
+
+    #[cfg(target_os = "macos")]
+    let anthropic_key = match anthropic_key {
+        Some(k) => Some(k),
+        None => discovery::load_claude_keychain_token().await,
+    };
+
+    if let Some(key) = anthropic_key {
         providers.push(Arc::new(AnthropicProvider::new(key)));
-    }
-    if let Ok(key) = std::env::var("OPENAI_API_KEY") {
-        providers.push(Arc::new(OpenAIProvider::new(key)));
-    }
-    if let Ok(key) = std::env::var("GOOGLE_API_KEY") {
-        providers.push(Arc::new(GoogleProvider::new(key)));
+        seen_providers.push("anthropic".into());
     }
 
-    // AWS Bedrock (uses AWS credential chain)
+    // --- Standard providers: env var > saved file ---
+    if let Some(key) = resolve_key("OPENAI_API_KEY", "openai").await {
+        providers.push(Arc::new(OpenAIProvider::new(key)));
+        seen_providers.push("openai".into());
+    }
+    if let Some(key) = resolve_key("GOOGLE_API_KEY", "google").await {
+        providers.push(Arc::new(GoogleProvider::new(key)));
+        seen_providers.push("google".into());
+    }
+
+    // AWS Bedrock (uses AWS credential chain — env vars only, no saved file)
     if let Ok(access_key) = std::env::var("AWS_ACCESS_KEY_ID") {
         if let Ok(secret_key) = std::env::var("AWS_SECRET_ACCESS_KEY") {
             let session_token = std::env::var("AWS_SESSION_TOKEN").ok();
@@ -40,10 +70,11 @@ pub async fn discover_providers() -> Vec<Arc<dyn ModelProvider>> {
                 region,
                 model,
             )));
+            seen_providers.push("bedrock".into());
         }
     }
 
-    if let Ok(key) = std::env::var("GROQ_API_KEY") {
+    if let Some(key) = resolve_key("GROQ_API_KEY", "groq").await {
         providers.push(Arc::new(OpenAICompatProvider::new(
             "groq",
             "Groq",
@@ -51,8 +82,9 @@ pub async fn discover_providers() -> Vec<Arc<dyn ModelProvider>> {
             "https://api.groq.com/openai/v1".into(),
             "llama-3.3-70b-versatile".into(),
         )));
+        seen_providers.push("groq".into());
     }
-    if let Ok(key) = std::env::var("OPENROUTER_API_KEY") {
+    if let Some(key) = resolve_key("OPENROUTER_API_KEY", "openrouter").await {
         providers.push(Arc::new(OpenAICompatProvider::new(
             "openrouter",
             "OpenRouter",
@@ -60,8 +92,9 @@ pub async fn discover_providers() -> Vec<Arc<dyn ModelProvider>> {
             "https://openrouter.ai/api/v1".into(),
             "auto".into(),
         )));
+        seen_providers.push("openrouter".into());
     }
-    if let Ok(key) = std::env::var("TOGETHER_API_KEY") {
+    if let Some(key) = resolve_key("TOGETHER_API_KEY", "together").await {
         providers.push(Arc::new(OpenAICompatProvider::new(
             "together",
             "Together",
@@ -69,8 +102,9 @@ pub async fn discover_providers() -> Vec<Arc<dyn ModelProvider>> {
             "https://api.together.xyz/v1".into(),
             "meta-llama/Llama-3.3-70B-Instruct-Turbo".into(),
         )));
+        seen_providers.push("together".into());
     }
-    if let Ok(key) = std::env::var("DEEPSEEK_API_KEY") {
+    if let Some(key) = resolve_key("DEEPSEEK_API_KEY", "deepseek").await {
         providers.push(Arc::new(OpenAICompatProvider::new(
             "deepseek",
             "DeepSeek",
@@ -78,8 +112,9 @@ pub async fn discover_providers() -> Vec<Arc<dyn ModelProvider>> {
             "https://api.deepseek.com/v1".into(),
             "deepseek-chat".into(),
         )));
+        seen_providers.push("deepseek".into());
     }
-    if let Ok(key) = std::env::var("XAI_API_KEY") {
+    if let Some(key) = resolve_key("XAI_API_KEY", "xai").await {
         providers.push(Arc::new(OpenAICompatProvider::new(
             "xai",
             "xAI",
@@ -87,6 +122,41 @@ pub async fn discover_providers() -> Vec<Arc<dyn ModelProvider>> {
             "https://api.x.ai/v1".into(),
             "grok-3".into(),
         )));
+        seen_providers.push("xai".into());
+    }
+
+    // --- Qwen: env var > saved file > Qwen CLI ---
+    if !seen_providers.contains(&"qwen".to_string()) {
+        let qwen_key = resolve_key("QWEN_API_KEY", "qwen").await;
+        let qwen_key = match qwen_key {
+            Some(k) => Some(k),
+            None => discovery::load_qwen_cli_token().await,
+        };
+
+        if let Some(key) = qwen_key {
+            providers.push(Arc::new(OpenAICompatProvider::new(
+                "qwen",
+                "Qwen",
+                key,
+                "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
+                "qwen2.5-coder-32b".into(),
+            )));
+            seen_providers.push("qwen".into());
+        }
+    }
+
+    // Custom OpenAI-compatible provider (from saved credentials only)
+    if let Some(key) = load_saved_key("custom").await {
+        if let Some(url) = load_saved_custom_url().await {
+            providers.push(Arc::new(OpenAICompatProvider::new(
+                "custom",
+                "Custom",
+                key,
+                url,
+                "auto".into(),
+            )));
+            seen_providers.push("custom".into());
+        }
     }
 
     // Probe Ollama (local, free)
@@ -98,6 +168,26 @@ pub async fn discover_providers() -> Vec<Arc<dyn ModelProvider>> {
     providers
 }
 
+/// Load an API key from the saved credential file (~/.openkoi/credentials/{provider}.key).
+async fn load_saved_key(provider: &str) -> Option<String> {
+    let key_path = paths::credentials_dir().join(format!("{provider}.key"));
+    tokio::fs::read_to_string(&key_path)
+        .await
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Load the saved custom provider URL (~/.openkoi/credentials/custom.url).
+async fn load_saved_custom_url() -> Option<String> {
+    let url_path = paths::credentials_dir().join("custom.url");
+    tokio::fs::read_to_string(&url_path)
+        .await
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 /// Pick the best default model from available providers.
 pub fn pick_default_model(providers: &[Arc<dyn ModelProvider>]) -> Option<ModelRef> {
     let priority = [
@@ -105,9 +195,13 @@ pub fn pick_default_model(providers: &[Arc<dyn ModelProvider>]) -> Option<ModelR
         ("openai", "gpt-4.1"),
         ("google", "gemini-2.5-pro"),
         ("bedrock", "anthropic.claude-sonnet-4-20250514-v1:0"),
+        ("openrouter", "auto"),
         ("groq", "llama-3.3-70b-versatile"),
         ("deepseek", "deepseek-chat"),
+        ("xai", "grok-3"),
+        ("qwen", "qwen2.5-coder-32b"),
         ("together", "meta-llama/Llama-3.3-70B-Instruct-Turbo"),
+        ("custom", "auto"),
         ("ollama", ""),
     ];
 

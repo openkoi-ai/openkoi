@@ -105,12 +105,7 @@ pub async fn discover_providers() -> Vec<DiscoveredProvider> {
 
 /// Import credentials from Claude Code CLI (~/.claude/.credentials.json)
 async fn import_claude_cli_credentials() -> Option<DiscoveredProvider> {
-    let home = dirs::home_dir()?;
-    let creds_path = home.join(".claude/.credentials.json");
-    let content = tokio::fs::read_to_string(&creds_path).await.ok()?;
-    let creds: serde_json::Value = serde_json::from_str(&content).ok()?;
-
-    let token = creds.get("oauth_token")?.as_str()?;
+    let token = load_claude_cli_token().await?;
     if token.is_empty() {
         return None;
     }
@@ -122,14 +117,24 @@ async fn import_claude_cli_credentials() -> Option<DiscoveredProvider> {
     })
 }
 
-/// Import from Qwen CLI (~/.qwen/oauth_creds.json)
-async fn import_qwen_credentials() -> Option<DiscoveredProvider> {
+/// Load the raw OAuth token from Claude Code CLI (~/.claude/.credentials.json).
+/// Public so the provider resolver can also use it.
+pub async fn load_claude_cli_token() -> Option<String> {
     let home = dirs::home_dir()?;
-    let creds_path = home.join(".qwen/oauth_creds.json");
+    let creds_path = home.join(".claude/.credentials.json");
     let content = tokio::fs::read_to_string(&creds_path).await.ok()?;
     let creds: serde_json::Value = serde_json::from_str(&content).ok()?;
 
-    let token = creds.get("access_token")?.as_str()?;
+    let token = creds.get("oauth_token")?.as_str()?;
+    if token.is_empty() {
+        return None;
+    }
+    Some(token.to_string())
+}
+
+/// Import from Qwen CLI (~/.qwen/oauth_creds.json)
+async fn import_qwen_credentials() -> Option<DiscoveredProvider> {
+    let token = load_qwen_cli_token().await?;
     if token.is_empty() {
         return None;
     }
@@ -141,9 +146,40 @@ async fn import_qwen_credentials() -> Option<DiscoveredProvider> {
     })
 }
 
+/// Load the raw access token from Qwen CLI (~/.qwen/oauth_creds.json).
+/// Public so the provider resolver can also use it.
+pub async fn load_qwen_cli_token() -> Option<String> {
+    let home = dirs::home_dir()?;
+    let creds_path = home.join(".qwen/oauth_creds.json");
+    let content = tokio::fs::read_to_string(&creds_path).await.ok()?;
+    let creds: serde_json::Value = serde_json::from_str(&content).ok()?;
+
+    let token = creds.get("access_token")?.as_str()?;
+    if token.is_empty() {
+        return None;
+    }
+    Some(token.to_string())
+}
+
 /// macOS: check Keychain for Claude Code credentials
 #[cfg(target_os = "macos")]
 async fn import_claude_keychain() -> Option<DiscoveredProvider> {
+    let token = load_claude_keychain_token().await?;
+    if token.is_empty() {
+        return None;
+    }
+
+    Some(DiscoveredProvider {
+        provider: "anthropic".into(),
+        model: "claude-sonnet-4-5".into(),
+        source: CredentialSource::ClaudeCliKeychain,
+    })
+}
+
+/// macOS: load the raw token from Keychain for Claude Code.
+/// Public so the provider resolver can also use it.
+#[cfg(target_os = "macos")]
+pub async fn load_claude_keychain_token() -> Option<String> {
     let output = tokio::process::Command::new("security")
         .args(["find-generic-password", "-s", "Claude Code-credentials", "-w"])
         .output()
@@ -157,12 +193,7 @@ async fn import_claude_keychain() -> Option<DiscoveredProvider> {
     if token.is_empty() {
         return None;
     }
-
-    Some(DiscoveredProvider {
-        provider: "anthropic".into(),
-        model: "claude-sonnet-4-5".into(),
-        source: CredentialSource::ClaudeCliKeychain,
-    })
+    Some(token)
 }
 
 /// Load credentials saved by OpenKoi itself (~/.openkoi/credentials/*.key)

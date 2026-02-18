@@ -24,69 +24,111 @@ impl fmt::Display for ProviderOption {
 }
 
 /// Show an interactive provider picker. Max 2 prompts before the task runs.
+/// Retries once on cancel; exits cleanly on second cancel.
 pub async fn pick_provider() -> Result<DiscoveredProvider> {
-    let options = vec![
-        ProviderOption {
-            label: "Ollama (free, runs locally)",
-            hint: "no account needed",
-            provider: "ollama",
-            needs_key: false,
-        },
-        ProviderOption {
-            label: "Anthropic (claude-sonnet-4-5)",
-            hint: "paste API key",
-            provider: "anthropic",
-            needs_key: true,
-        },
-        ProviderOption {
-            label: "OpenAI (gpt-4.1)",
-            hint: "paste API key",
-            provider: "openai",
-            needs_key: true,
-        },
-        ProviderOption {
-            label: "OpenRouter (many free models)",
-            hint: "free account at openrouter.ai",
-            provider: "openrouter",
-            needs_key: true,
-        },
-        ProviderOption {
-            label: "Other (OpenAI-compatible URL)",
-            hint: "any endpoint",
-            provider: "custom",
-            needs_key: true,
-        },
-    ];
+    let mut attempts = 0;
 
-    let choice = Select::new(
-        "No API keys found. Pick a provider to get started:",
-        options,
-    )
-    .prompt()
-    .map_err(|e| anyhow!("Selection cancelled: {e}"))?;
+    loop {
+        let options = vec![
+            ProviderOption {
+                label: "Ollama (free, runs locally)",
+                hint: "no account needed",
+                provider: "ollama",
+                needs_key: false,
+            },
+            ProviderOption {
+                label: "Anthropic (claude-sonnet-4-5)",
+                hint: "paste API key",
+                provider: "anthropic",
+                needs_key: true,
+            },
+            ProviderOption {
+                label: "OpenAI (gpt-4.1)",
+                hint: "paste API key",
+                provider: "openai",
+                needs_key: true,
+            },
+            ProviderOption {
+                label: "OpenRouter (many free models)",
+                hint: "free account at openrouter.ai",
+                provider: "openrouter",
+                needs_key: true,
+            },
+            ProviderOption {
+                label: "Other (OpenAI-compatible URL)",
+                hint: "any endpoint",
+                provider: "custom",
+                needs_key: true,
+            },
+        ];
 
-    if choice.provider == "ollama" {
-        return setup_ollama().await;
+        let choice = Select::new(
+            "No API keys found. Pick a provider to get started:",
+            options,
+        )
+        .prompt();
+
+        let choice = match choice {
+            Ok(c) => c,
+            Err(_) => {
+                attempts += 1;
+                if attempts >= 2 {
+                    eprintln!();
+                    eprintln!("  Setup cancelled. To try again, run:");
+                    eprintln!("    openkoi init");
+                    eprintln!();
+                    eprintln!("  Or set an API key in your environment:");
+                    eprintln!("    export ANTHROPIC_API_KEY=sk-...");
+                    eprintln!("    export OPENROUTER_API_KEY=sk-...");
+                    eprintln!();
+                    return Err(anyhow!("Setup cancelled"));
+                }
+                eprintln!();
+                eprintln!("  Cancelled. Press Ctrl+C again to exit, or pick a provider:");
+                eprintln!();
+                continue;
+            }
+        };
+
+        if choice.provider == "ollama" {
+            return setup_ollama().await;
+        }
+
+        if choice.provider == "custom" {
+            return setup_custom_provider().await;
+        }
+
+        // API key flow: one prompt, save, done
+        let key = match inquire::Password::new(&format!("Paste your {} API key:", choice.label))
+            .without_confirmation()
+            .prompt()
+        {
+            Ok(k) => k,
+            Err(_) => {
+                attempts += 1;
+                if attempts >= 2 {
+                    eprintln!();
+                    eprintln!("  Setup cancelled. To try again, run:");
+                    eprintln!("    openkoi init");
+                    eprintln!();
+                    return Err(anyhow!("Setup cancelled"));
+                }
+                eprintln!();
+                eprintln!("  Key entry cancelled. Let's try again:");
+                eprintln!();
+                continue;
+            }
+        };
+
+        save_credential(choice.provider, &key).await?;
+        eprintln!("  Saved to ~/.openkoi/credentials/{}.key", choice.provider);
+
+        return Ok(DiscoveredProvider {
+            provider: choice.provider.into(),
+            model: default_model_for(choice.provider),
+            source: CredentialSource::ConfigFile,
+        });
     }
-
-    if choice.provider == "custom" {
-        return setup_custom_provider().await;
-    }
-
-    // API key flow: one prompt, save, done
-    let key = inquire::Password::new(&format!("Paste your {} API key:", choice.label))
-        .without_confirmation()
-        .prompt()
-        .map_err(|e| anyhow!("Input cancelled: {e}"))?;
-
-    save_credential(choice.provider, &key).await?;
-    eprintln!("  Saved to ~/.openkoi/credentials/{}.key", choice.provider);
-
-    Ok(DiscoveredProvider {
-        provider: choice.provider.into(),
-        model: default_model_for(choice.provider),
-        source: CredentialSource::ConfigFile,
-    })
 }
 
 /// Set up Ollama as the provider.
