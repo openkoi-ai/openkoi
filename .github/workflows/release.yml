@@ -1,6 +1,6 @@
 # Release pipeline for OpenKoi
 # Triggered by pushing a tag matching vYYYY.M.D (CalVer)
-# Cross-compiles for 5 targets, creates GitHub Release with artifacts
+# Cross-compiles for 4 targets (Linux/macOS), creates GitHub Release with artifacts
 
 name: Release
 
@@ -34,7 +34,7 @@ jobs:
             archive: openkoi-linux-arm64.tar.gz
 
           - target: x86_64-apple-darwin
-            os: macos-latest
+            os: macos-15-intel
             binary: openkoi
             archive: openkoi-macos-x86_64.tar.gz
 
@@ -42,11 +42,6 @@ jobs:
             os: macos-latest
             binary: openkoi
             archive: openkoi-macos-arm64.tar.gz
-
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            binary: openkoi.exe
-            archive: openkoi-windows-x86_64.zip
 
     steps:
       - uses: actions/checkout@v4
@@ -79,21 +74,11 @@ jobs:
 
       # Package
       - name: Package (Unix)
-        if: runner.os != 'Windows'
         run: |
           cd target/${{ matrix.target }}/release
           tar czf ../../../${{ matrix.archive }} ${{ matrix.binary }}
           cd ../../..
           sha256sum ${{ matrix.archive }} > ${{ matrix.archive }}.sha256
-
-      - name: Package (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          cd target/${{ matrix.target }}/release
-          Compress-Archive -Path ${{ matrix.binary }} -DestinationPath ../../../${{ matrix.archive }}
-          cd ../../..
-          (Get-FileHash ${{ matrix.archive }} -Algorithm SHA256).Hash.ToLower() + "  " + "${{ matrix.archive }}" | Out-File -Encoding ascii ${{ matrix.archive }}.sha256
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
