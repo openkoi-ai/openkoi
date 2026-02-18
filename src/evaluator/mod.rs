@@ -762,6 +762,27 @@ pub struct CalibrationStats {
     pub count: usize,
 }
 
+/// Generate a concise suggestion from findings.
+fn generate_suggestion(findings: &[Finding]) -> String {
+    let critical: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.severity == Severity::Blocker || f.severity == Severity::Important)
+        .collect();
+
+    if critical.is_empty() {
+        return "Output looks good. Minor improvements possible.".into();
+    }
+
+    let mut suggestion = format!("Fix {} critical issue(s): ", critical.len());
+    for (i, f) in critical.iter().enumerate() {
+        if i > 0 {
+            suggestion.push_str("; ");
+        }
+        suggestion.push_str(&f.title);
+    }
+    suggestion
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1141,25 +1162,4 @@ SUGGESTION: Keep improving.";
         // Score should be recalculated from calibrated dimensions
         assert!((eval.score - eval.dimensions[0].score).abs() < 0.001);
     }
-}
-
-/// Generate a concise suggestion from findings.
-fn generate_suggestion(findings: &[Finding]) -> String {
-    let critical: Vec<&Finding> = findings
-        .iter()
-        .filter(|f| f.severity == Severity::Blocker || f.severity == Severity::Important)
-        .collect();
-
-    if critical.is_empty() {
-        return "Output looks good. Minor improvements possible.".into();
-    }
-
-    let mut suggestion = format!("Fix {} critical issue(s): ", critical.len());
-    for (i, f) in critical.iter().enumerate() {
-        if i > 0 {
-            suggestion.push_str("; ");
-        }
-        suggestion.push_str(&f.title);
-    }
-    suggestion
 }

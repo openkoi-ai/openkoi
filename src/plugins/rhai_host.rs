@@ -466,7 +466,7 @@ fn broken( {
         assert!(d.is_unit());
 
         let d = json_to_dynamic(&serde_json::json!(true));
-        assert_eq!(d.as_bool().unwrap(), true);
+        assert!(d.as_bool().unwrap());
 
         let d = json_to_dynamic(&serde_json::json!(42));
         assert_eq!(d.as_int().unwrap(), 42);

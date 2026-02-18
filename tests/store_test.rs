@@ -535,7 +535,7 @@ fn test_run_decay_end_to_end() {
 
     // ld-3 should be gone
     assert!(
-        remaining.iter().find(|l| l.id == "ld-3").is_none(),
+        !remaining.iter().any(|l| l.id == "ld-3"),
         "ld-3 should have been pruned"
     );
 }
