@@ -214,7 +214,9 @@ fn parse_clippy_output(output: &str, success: bool) -> anyhow::Result<Option<Lin
             let location = if let Some(idx) = trimmed.find(": warning:") {
                 Some(trimmed[..idx].to_string())
             } else {
-                trimmed.find(": error").map(|idx| trimmed[..idx].to_string())
+                trimmed
+                    .find(": error")
+                    .map(|idx| trimmed[..idx].to_string())
             };
 
             issues.push(LintIssue {
