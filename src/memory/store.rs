@@ -89,6 +89,7 @@ impl Store {
 
     // -- Iteration Cycles --
 
+    #[allow(clippy::too_many_arguments)]
     pub fn insert_cycle(
         &self,
         id: &str,
@@ -122,6 +123,7 @@ impl Store {
 
     // -- Findings --
 
+    #[allow(clippy::too_many_arguments)]
     pub fn insert_finding(
         &self,
         id: &str,
@@ -407,6 +409,7 @@ impl Store {
 
     // -- Usage Events --
 
+    #[allow(clippy::too_many_arguments)]
     pub fn insert_usage_event(
         &self,
         id: &str,
@@ -475,6 +478,7 @@ impl Store {
 
     // -- Usage Patterns --
 
+    #[allow(clippy::too_many_arguments)]
     pub fn insert_usage_pattern(
         &self,
         id: &str,

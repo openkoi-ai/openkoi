@@ -10,6 +10,12 @@ pub struct IntegrationRegistry {
     integrations: HashMap<String, Box<dyn Integration>>,
 }
 
+impl Default for IntegrationRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl IntegrationRegistry {
     pub fn new() -> Self {
         Self {

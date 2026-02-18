@@ -135,19 +135,14 @@ impl TokenUsage {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub enum StopReason {
     EndTurn,
     MaxTokens,
     ToolUse,
     StopSequence,
+    #[default]
     Unknown,
-}
-
-impl Default for StopReason {
-    fn default() -> Self {
-        Self::Unknown
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

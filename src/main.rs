@@ -60,7 +60,7 @@ async fn run() -> anyhow::Result<()> {
         }
         Some(Commands::Dashboard) => {
             let store = init_store();
-            return openkoi::tui::run_dashboard(store.as_ref(), &config).map_err(|e| e.into());
+            return openkoi::tui::run_dashboard(store.as_ref(), &config);
         }
         Some(Commands::Update { version, check }) => {
             return openkoi::cli::update::run_update(version.clone(), *check).await;

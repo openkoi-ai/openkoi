@@ -25,6 +25,12 @@ pub struct TestFailure {
     pub location: Option<String>,
 }
 
+impl Default for TestRunner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TestRunner {
     pub fn new() -> Self {
         Self
@@ -185,7 +191,7 @@ fn parse_cargo_test_output(output: &str, success: bool) -> anyhow::Result<Option
 
 /// Parse `go test` output.
 ///
-/// Lines like: `--- FAIL: TestFoo (0.00s)` or `ok  	package	0.005s`
+/// Lines like: `--- FAIL: TestFoo (0.00s)` or `ok      package    0.005s`
 fn parse_go_test_output(output: &str, success: bool) -> anyhow::Result<Option<TestResult>> {
     let mut passed: u32 = 0;
     let mut failed: u32 = 0;

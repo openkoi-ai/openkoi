@@ -15,8 +15,7 @@ fn project_dirs() -> &'static ProjectDirs {
 /// Configuration directory: ~/.openkoi/ (or XDG_CONFIG_HOME/openkoi)
 pub fn config_dir() -> PathBuf {
     // Use ~/.openkoi for simplicity (matches design doc)
-    let home = dirs_home().join(".openkoi");
-    home
+    dirs_home().join(".openkoi")
 }
 
 /// Data directory: ~/.local/share/openkoi/ (or XDG_DATA_HOME/openkoi)

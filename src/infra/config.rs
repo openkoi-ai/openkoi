@@ -5,7 +5,7 @@ use std::path::Path;
 
 use crate::infra::paths;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub models: ModelsConfig,
@@ -224,20 +224,6 @@ impl Config {
         let content = std::fs::read_to_string(path)?;
         let config: Config = toml::from_str(&content)?;
         Ok(config)
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            models: ModelsConfig::default(),
-            iteration: IterationConfig::default(),
-            safety: SafetyConfig::default(),
-            patterns: PatternsConfig::default(),
-            memory: MemoryConfig::default(),
-            plugins: PluginsConfig::default(),
-            integrations: IntegrationsConfig::default(),
-        }
     }
 }
 

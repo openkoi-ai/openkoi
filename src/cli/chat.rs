@@ -38,6 +38,7 @@ struct HistoryEntry {
 }
 
 /// Run the interactive chat REPL.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_chat(
     provider: Arc<dyn ModelProvider>,
     model_ref: &ModelRef,
@@ -75,13 +76,7 @@ pub async fn run_chat(
     // We need to reborrow mcp_manager across loop iterations.
     let mut mcp = mcp_manager;
 
-    loop {
-        // Read input
-        let input = match read_input() {
-            Some(input) => input,
-            None => break, // EOF
-        };
-
+    while let Some(input) = read_input() {
         let trimmed = input.trim();
 
         // Handle quit
@@ -139,10 +134,7 @@ pub async fn run_chat(
             skill_registry.clone(),
         );
 
-        let mcp_ref = match mcp {
-            Some(ref mut m) => Some(&mut **m),
-            None => None,
-        };
+        let mcp_ref = mcp.as_deref_mut();
 
         match orchestrator.run(task, &ctx, mcp_ref, integrations).await {
             Ok(result) => {

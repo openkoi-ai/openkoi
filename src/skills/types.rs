@@ -22,17 +22,12 @@ impl SkillEntry {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SkillKind {
+    #[default]
     Task,
     Evaluator,
-}
-
-impl Default for SkillKind {
-    fn default() -> Self {
-        Self::Task
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

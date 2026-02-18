@@ -9,6 +9,12 @@ pub struct EvalCache {
     cache: HashMap<u64, f32>,
 }
 
+impl Default for EvalCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EvalCache {
     pub fn new() -> Self {
         Self {

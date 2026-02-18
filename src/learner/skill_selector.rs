@@ -8,6 +8,12 @@ use crate::skills::types::{SkillEntry, SkillKind};
 /// Selects and ranks skills for a given task based on multiple signals.
 pub struct SkillSelector;
 
+impl Default for SkillSelector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SkillSelector {
     pub fn new() -> Self {
         Self

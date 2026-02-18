@@ -52,6 +52,12 @@ pub struct WatcherManager {
     shutdown_tx: Option<tokio::sync::broadcast::Sender<()>>,
 }
 
+impl Default for WatcherManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WatcherManager {
     pub fn new() -> Self {
         Self {

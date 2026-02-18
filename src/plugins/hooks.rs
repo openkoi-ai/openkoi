@@ -121,8 +121,8 @@ impl HookExecutor {
 
     /// Check if any plugins are loaded (either WASM or Rhai).
     pub fn has_plugins(&self) -> bool {
-        let has_wasm = self.wasm.as_ref().map_or(false, |w| w.has_plugins());
-        let has_rhai = self.rhai.as_ref().map_or(false, |r| r.has_scripts());
+        let has_wasm = self.wasm.as_ref().is_some_and(|w| w.has_plugins());
+        let has_rhai = self.rhai.as_ref().is_some_and(|r| r.has_scripts());
         has_wasm || has_rhai
     }
 

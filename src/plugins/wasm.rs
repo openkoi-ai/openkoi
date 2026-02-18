@@ -599,8 +599,7 @@ impl Default for WasmPluginManager {
 
 /// Check if a URL matches a simple pattern like "https://api.example.com/*".
 fn url_matches_pattern(url: &str, pattern: &str) -> bool {
-    if pattern.ends_with('*') {
-        let prefix = &pattern[..pattern.len() - 1];
+    if let Some(prefix) = pattern.strip_suffix('*') {
         url.starts_with(prefix)
     } else {
         url == pattern

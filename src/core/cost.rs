@@ -17,6 +17,12 @@ pub struct CostTracker {
     pub calls_by_model: HashMap<String, u64>,
 }
 
+impl Default for CostTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CostTracker {
     pub fn new() -> Self {
         Self {
@@ -143,7 +149,7 @@ impl CostTracker {
     /// Generate a full cost analytics report string.
     pub fn analytics_report(&self) -> String {
         let mut report = String::new();
-        report.push_str(&format!("═══ Cost Analytics ═══\n"));
+        report.push_str("═══ Cost Analytics ═══\n");
         report.push_str(&format!("Total: ${:.4}\n", self.total_usd));
         report.push_str(&format!("Total tokens: {}\n", self.total_tokens()));
         report.push_str(&format!("Total API calls: {}\n", self.total_calls()));

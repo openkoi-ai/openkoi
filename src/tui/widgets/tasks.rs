@@ -41,14 +41,11 @@ fn render_task_table(f: &mut Frame, area: Rect, data: &TasksData, state: &mut Ta
                 .final_score
                 .map(|s| format!("{:.2}", s))
                 .unwrap_or_else(|| "-".into());
-            let score_style = t
-                .final_score
-                .map(|s| Theme::score(s))
-                .unwrap_or(Theme::text_dim());
+            let score_style = t.final_score.map(Theme::score).unwrap_or(Theme::text_dim());
 
             let tokens_text = t
                 .total_tokens
-                .map(|tk| format_tokens(tk))
+                .map(format_tokens)
                 .unwrap_or_else(|| "-".into());
 
             let cost_text = t

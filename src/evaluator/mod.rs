@@ -667,6 +667,12 @@ impl ScoreHistory {
     }
 }
 
+impl Default for ScoreCalibrator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ScoreCalibrator {
     pub fn new() -> Self {
         Self {

@@ -11,6 +11,12 @@ use crate::soul::loader::Soul;
 /// Manages context window efficiently across iterations.
 pub struct TokenOptimizer;
 
+impl Default for TokenOptimizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TokenOptimizer {
     pub fn new() -> Self {
         Self
@@ -19,6 +25,7 @@ impl TokenOptimizer {
     /// Build the smallest possible context for iteration N.
     /// On iteration 0: full system prompt + no messages.
     /// On iteration 1+: same system prompt (cached by provider) + delta feedback only.
+    #[allow(clippy::too_many_arguments)]
     pub fn build_context(
         &self,
         task: &TaskInput,

@@ -18,6 +18,7 @@ use crate::skills::registry::SkillRegistry;
 use crate::soul::loader;
 
 /// Execute a task through the iteration engine.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_task(
     task_description: &str,
     provider: Arc<dyn ModelProvider>,
@@ -138,7 +139,7 @@ fn check_soul_evolution(store: &Store) {
         .map(|events| events.len())
         .unwrap_or(0);
 
-    if task_count > 0 && task_count % 50 == 0 {
+    if task_count > 0 && task_count.is_multiple_of(50) {
         tracing::info!(
             "Soul evolution check: {} tasks completed. Run `openkoi learn evolve-soul` to review.",
             task_count,

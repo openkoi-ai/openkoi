@@ -98,7 +98,7 @@ pub async fn show_status(verbose: bool, costs: bool) -> anyhow::Result<()> {
                     "    Avg per task: ${:.4} ({} tokens)",
                     cost_stats.total_cost / cost_stats.task_count as f64,
                     (cost_stats.total_input_tokens + cost_stats.total_output_tokens)
-                        / cost_stats.task_count as i64,
+                        / cost_stats.task_count,
                 );
             }
         }

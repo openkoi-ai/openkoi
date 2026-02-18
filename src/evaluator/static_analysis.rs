@@ -27,6 +27,12 @@ pub enum LintSeverity {
     Warning,
 }
 
+impl Default for StaticAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StaticAnalyzer {
     pub fn new() -> Self {
         Self
@@ -207,10 +213,8 @@ fn parse_clippy_output(output: &str, success: bool) -> anyhow::Result<Option<Lin
             // Extract location (everything before the first ": warning:" or ": error")
             let location = if let Some(idx) = trimmed.find(": warning:") {
                 Some(trimmed[..idx].to_string())
-            } else if let Some(idx) = trimmed.find(": error") {
-                Some(trimmed[..idx].to_string())
             } else {
-                None
+                trimmed.find(": error").map(|idx| trimmed[..idx].to_string())
             };
 
             issues.push(LintIssue {

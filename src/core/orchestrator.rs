@@ -114,10 +114,7 @@ impl Orchestrator {
             );
 
             // Execute (with MCP tool dispatch if available)
-            let mcp_ref = match mcp {
-                Some(ref mut m) => Some(&mut **m),
-                None => None,
-            };
+            let mcp_ref = mcp.as_deref_mut();
             match self
                 .executor
                 .execute(&context, &ctx.tools, mcp_ref, integrations)
