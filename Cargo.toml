@@ -1,0 +1,90 @@
+[package]
+name = "openkoi"
+version = "0.1.0"
+edition = "2021"
+description = "Self-iterating AI agent system"
+license = "MIT"
+
+[[bin]]
+name = "openkoi"
+path = "src/main.rs"
+
+[dependencies]
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP + SSE streaming
+reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"] }
+reqwest-eventsource = "0.6"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yml = "0.0.12"
+toml = "0.8"
+
+# SQLite
+rusqlite = { version = "0.32", features = ["bundled"] }
+sqlite-vec = "0.1.6"
+
+# Prompt templating
+minijinja = "2"
+
+# Markdown parsing
+pulldown-cmark = "0.12"
+
+# TUI / interactive
+inquire = "0.7"
+ratatui = "0.30"
+crossterm = "0.29"
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Utilities
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+which = "7"
+directories = "6"
+dirs = "5"
+async-trait = "0.1"
+async-stream = "0.3"
+futures = "0.3"
+pin-project = "1"
+slug = "0.1"
+glob = "0.3"
+url = "2"
+
+# WASM plugins
+wasmtime = "41"
+
+# Scripting
+rhai = "1.24"
+
+# Email (IMAP/SMTP)
+imap = "3.0.0-alpha.15"
+native-tls = "0.2"
+lettre = { version = "0.11", features = ["tokio1-native-tls", "smtp-transport", "builder"] }
+mailparse = "0.15"
+
+# Office file formats (ZIP-based docx/xlsx)
+zip = "2"
+
+[dev-dependencies]
+pretty_assertions = "1"
+tokio-test = "0.4"
+criterion = { version = "0.5", features = ["html_reports"] }
+insta = { version = "1", features = ["yaml"] }
+mockall = "0.13"
+
+[[bench]]
+name = "benchmarks"
+harness = false

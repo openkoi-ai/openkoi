@@ -1,0 +1,13 @@
+# Build artifacts
+/target
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.sw?
+
+# Environment
+.env
