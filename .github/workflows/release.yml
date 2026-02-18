@@ -126,7 +126,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # Publish to crates.io (manual trigger only for safety)
+  # Publish to crates.io
   publish:
     name: Publish to crates.io
     runs-on: ubuntu-latest
@@ -139,6 +139,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Publish
-        run: cargo publish --dry-run
+        run: cargo publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

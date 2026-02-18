@@ -7,7 +7,14 @@ OpenKoi follows a **Plan-Execute-Evaluate-Refine** cycle — iterating on its ow
 ## Quick Start
 
 ```bash
+# Install via Cargo
 cargo install openkoi
+
+# Or use the shell installer
+curl -fsSL https://openkoi.dev/install.sh | sh
+```
+
+```bash
 openkoi "Refactor the auth module to use JWT tokens"
 ```
 
