@@ -267,11 +267,11 @@ impl MessagingAdapter for SlackAdapter {
 impl DocumentAdapter for SlackAdapter {
     async fn read(&self, doc_id: &str) -> anyhow::Result<Document> {
         // Slack files require files.info + authenticated download
-        let resp: serde_json::Value = self
-            .api_get("files.info", &[("file", doc_id)])
-            .await?;
+        let resp: serde_json::Value = self.api_get("files.info", &[("file", doc_id)]).await?;
 
-        let file = resp.get("file").ok_or_else(|| anyhow::anyhow!("No file in response"))?;
+        let file = resp
+            .get("file")
+            .ok_or_else(|| anyhow::anyhow!("No file in response"))?;
         let title = file
             .get("title")
             .and_then(|t| t.as_str())
@@ -342,9 +342,7 @@ impl DocumentAdapter for SlackAdapter {
     }
 
     async fn search(&self, query: &str) -> anyhow::Result<Vec<DocumentRef>> {
-        let resp: FilesListResp = self
-            .api_get("files.list", &[("query", query)])
-            .await?;
+        let resp: FilesListResp = self.api_get("files.list", &[("query", query)]).await?;
 
         if !resp.ok {
             anyhow::bail!(
@@ -369,9 +367,7 @@ impl DocumentAdapter for SlackAdapter {
 
     async fn list(&self, _folder: Option<&str>) -> anyhow::Result<Vec<DocumentRef>> {
         // Slack doesn't have folders; list recent files
-        let resp: FilesListResp = self
-            .api_get("files.list", &[("count", "20")])
-            .await?;
+        let resp: FilesListResp = self.api_get("files.list", &[("count", "20")]).await?;
 
         if !resp.ok {
             anyhow::bail!(

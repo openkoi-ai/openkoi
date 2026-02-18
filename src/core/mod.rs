@@ -1,8 +1,8 @@
 // src/core/mod.rs — Core iteration engine
 
 pub mod cost;
-pub mod executor;
 pub mod eval_cache;
+pub mod executor;
 pub mod orchestrator;
 pub mod safety;
 pub mod system_prompt;

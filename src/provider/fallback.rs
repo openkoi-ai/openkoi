@@ -47,8 +47,7 @@ impl FallbackChain {
 
     /// Mark a candidate as temporarily unavailable.
     pub fn mark_failed(&mut self, candidate: &ModelRef) {
-        self.cooldowns
-            .insert(candidate.to_string(), Instant::now());
+        self.cooldowns.insert(candidate.to_string(), Instant::now());
     }
 
     /// Run a chat request through the fallback chain.

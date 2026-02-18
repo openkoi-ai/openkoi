@@ -170,11 +170,12 @@ impl ModelProvider for OpenAIProvider {
             });
         }
 
-        let resp: serde_json::Value = response.json().await.map_err(|e| OpenKoiError::Provider {
-            provider: "openai".into(),
-            message: format!("Failed to parse response: {}", e),
-            retriable: false,
-        })?;
+        let resp: serde_json::Value =
+            response.json().await.map_err(|e| OpenKoiError::Provider {
+                provider: "openai".into(),
+                message: format!("Failed to parse response: {}", e),
+                retriable: false,
+            })?;
 
         let choice = &resp["choices"][0];
         let content = choice["message"]["content"]
@@ -381,11 +382,12 @@ impl ModelProvider for OpenAIProvider {
                 retriable: e.is_timeout(),
             })?;
 
-        let resp: serde_json::Value = response.json().await.map_err(|e| OpenKoiError::Provider {
-            provider: "openai".into(),
-            message: format!("Failed to parse embedding response: {}", e),
-            retriable: false,
-        })?;
+        let resp: serde_json::Value =
+            response.json().await.map_err(|e| OpenKoiError::Provider {
+                provider: "openai".into(),
+                message: format!("Failed to parse embedding response: {}", e),
+                retriable: false,
+            })?;
 
         let embeddings = resp["data"]
             .as_array()

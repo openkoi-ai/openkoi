@@ -70,10 +70,7 @@ impl OllamaProvider {
                 return m.clone();
             }
         }
-        models
-            .first()
-            .cloned()
-            .unwrap_or_else(|| "llama3.3".into())
+        models.first().cloned().unwrap_or_else(|| "llama3.3".into())
     }
 }
 
@@ -163,11 +160,12 @@ impl ModelProvider for OllamaProvider {
             });
         }
 
-        let resp: serde_json::Value = response.json().await.map_err(|e| OpenKoiError::Provider {
-            provider: "ollama".into(),
-            message: format!("Failed to parse response: {}", e),
-            retriable: false,
-        })?;
+        let resp: serde_json::Value =
+            response.json().await.map_err(|e| OpenKoiError::Provider {
+                provider: "ollama".into(),
+                message: format!("Failed to parse response: {}", e),
+                retriable: false,
+            })?;
 
         let content = resp["message"]["content"]
             .as_str()

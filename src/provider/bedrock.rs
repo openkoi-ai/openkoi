@@ -48,10 +48,7 @@ impl BedrockProvider {
 
     /// Bedrock Runtime endpoint for the configured region.
     fn endpoint(&self) -> String {
-        format!(
-            "https://bedrock-runtime.{}.amazonaws.com",
-            self.region
-        )
+        format!("https://bedrock-runtime.{}.amazonaws.com", self.region)
     }
 
     /// Build the Bedrock Converse API request body from a ChatRequest.
@@ -80,16 +77,13 @@ impl BedrockProvider {
         });
 
         // System prompt via the "system" field
-        let system_text = request
-            .system
-            .as_deref()
-            .or_else(|| {
-                request
-                    .messages
-                    .iter()
-                    .find(|m| m.role == Role::System)
-                    .map(|m| m.content.as_str())
-            });
+        let system_text = request.system.as_deref().or_else(|| {
+            request
+                .messages
+                .iter()
+                .find(|m| m.role == Role::System)
+                .map(|m| m.content.as_str())
+        });
         if let Some(sys) = system_text {
             body["system"] = serde_json::json!([{ "text": sys }]);
         }
@@ -285,14 +279,11 @@ impl ModelProvider for BedrockProvider {
         }
 
         let resp: serde_json::Value =
-            response
-                .json()
-                .await
-                .map_err(|e| OpenKoiError::Provider {
-                    provider: "bedrock".into(),
-                    message: e.to_string(),
-                    retriable: false,
-                })?;
+            response.json().await.map_err(|e| OpenKoiError::Provider {
+                provider: "bedrock".into(),
+                message: e.to_string(),
+                retriable: false,
+            })?;
 
         // Bedrock Converse response: { output: { message: { content: [{ text: "..." }] } }, usage: { ... }, stopReason }
         let content = resp["output"]["message"]["content"]
@@ -335,11 +326,7 @@ impl ModelProvider for BedrockProvider {
         } else {
             request.model.clone()
         };
-        let url = format!(
-            "{}/model/{}/converse-stream",
-            self.endpoint(),
-            model_id
-        );
+        let url = format!("{}/model/{}/converse-stream", self.endpoint(), model_id);
         let body = self.build_converse_body(&request);
         let payload = serde_json::to_vec(&body).unwrap_or_default();
 
@@ -493,12 +480,10 @@ fn sha256(data: &[u8]) -> [u8; 32] {
             ]));
         }
         for i in 16..64 {
-            let s0 = (w[i - 15].0.rotate_right(7))
-                ^ (w[i - 15].0.rotate_right(18))
-                ^ (w[i - 15].0 >> 3);
-            let s1 = (w[i - 2].0.rotate_right(17))
-                ^ (w[i - 2].0.rotate_right(19))
-                ^ (w[i - 2].0 >> 10);
+            let s0 =
+                (w[i - 15].0.rotate_right(7)) ^ (w[i - 15].0.rotate_right(18)) ^ (w[i - 15].0 >> 3);
+            let s1 =
+                (w[i - 2].0.rotate_right(17)) ^ (w[i - 2].0.rotate_right(19)) ^ (w[i - 2].0 >> 10);
             w[i] = w[i - 16] + Wrapping(s0) + w[i - 7] + Wrapping(s1);
         }
 
@@ -506,14 +491,10 @@ fn sha256(data: &[u8]) -> [u8; 32] {
             (h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7]);
 
         for i in 0..64 {
-            let s1 = Wrapping(
-                e.0.rotate_right(6) ^ e.0.rotate_right(11) ^ e.0.rotate_right(25),
-            );
+            let s1 = Wrapping(e.0.rotate_right(6) ^ e.0.rotate_right(11) ^ e.0.rotate_right(25));
             let ch = Wrapping((e.0 & f.0) ^ ((!e.0) & g.0));
             let temp1 = hh + s1 + ch + Wrapping(K[i]) + w[i];
-            let s0 = Wrapping(
-                a.0.rotate_right(2) ^ a.0.rotate_right(13) ^ a.0.rotate_right(22),
-            );
+            let s0 = Wrapping(a.0.rotate_right(2) ^ a.0.rotate_right(13) ^ a.0.rotate_right(22));
             let maj = Wrapping((a.0 & b.0) ^ (a.0 & c.0) ^ (b.0 & c.0));
             let temp2 = s0 + maj;
 
@@ -631,18 +612,10 @@ mod tests {
 
     #[test]
     fn test_converse_body_structure() {
-        let provider = BedrockProvider::new(
-            "key".into(),
-            "secret".into(),
-            None,
-            None,
-            None,
-        );
+        let provider = BedrockProvider::new("key".into(), "secret".into(), None, None, None);
         let request = ChatRequest {
             model: "anthropic.claude-sonnet-4-20250514-v1:0".into(),
-            messages: vec![
-                super::super::Message::user("Hello"),
-            ],
+            messages: vec![super::super::Message::user("Hello")],
             system: Some("You are helpful.".into()),
             max_tokens: Some(1024),
             temperature: Some(0.7),

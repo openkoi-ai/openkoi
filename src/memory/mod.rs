@@ -7,8 +7,8 @@ pub mod recall;
 pub mod schema;
 pub mod store;
 
-use std::path::Path;
 use rusqlite::Connection;
+use std::path::Path;
 
 /// Central memory manager owning the SQLite connection.
 pub struct MemoryManager {

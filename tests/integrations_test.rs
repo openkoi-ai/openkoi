@@ -1,6 +1,6 @@
 // tests/integrations_test.rs — Integration tests for the integrations subsystem
 
-use openkoi::integrations::credentials::{IntegrationCredentials, validate_token_format};
+use openkoi::integrations::credentials::{validate_token_format, IntegrationCredentials};
 use openkoi::integrations::registry::IntegrationRegistry;
 use openkoi::integrations::types::*;
 
@@ -211,7 +211,9 @@ fn test_credentials_all_integrations() {
 
     // Set all
     creds.set_token("slack", "xoxb-test").unwrap();
-    creds.set_token("discord", "discord-token-12345678901234567890").unwrap();
+    creds
+        .set_token("discord", "discord-token-12345678901234567890")
+        .unwrap();
     creds.set_token("telegram", "123:ABC").unwrap();
     creds.set_token("notion", "secret_test").unwrap();
 
@@ -255,13 +257,13 @@ fn test_validate_unknown_integration_passthrough() {
 
 #[tokio::test]
 async fn test_executor_dispatches_integration_tools() {
+    use futures::Stream;
     use openkoi::core::executor::Executor;
     use openkoi::core::types::ExecutionContext;
     use openkoi::provider::*;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use futures::Stream;
     use std::pin::Pin;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
 
     /// Provider that returns a tool call then a final response.
     struct IntegrationToolProvider {
@@ -270,11 +272,20 @@ async fn test_executor_dispatches_integration_tools() {
 
     #[async_trait]
     impl ModelProvider for IntegrationToolProvider {
-        fn id(&self) -> &str { "mock" }
-        fn name(&self) -> &str { "Mock" }
-        fn models(&self) -> Vec<ModelInfo> { vec![] }
+        fn id(&self) -> &str {
+            "mock"
+        }
+        fn name(&self) -> &str {
+            "Mock"
+        }
+        fn models(&self) -> Vec<ModelInfo> {
+            vec![]
+        }
 
-        async fn chat(&self, _req: ChatRequest) -> Result<ChatResponse, openkoi::infra::errors::OpenKoiError> {
+        async fn chat(
+            &self,
+            _req: ChatRequest,
+        ) -> Result<ChatResponse, openkoi::infra::errors::OpenKoiError> {
             let count = self.call_count.fetch_add(1, Ordering::SeqCst);
             if count == 0 {
                 // First call: request integration tool
@@ -288,22 +299,39 @@ async fn test_executor_dispatches_integration_tools() {
                             "message": "Hello from agent"
                         }),
                     }],
-                    usage: TokenUsage { input_tokens: 50, output_tokens: 20, ..Default::default() },
+                    usage: TokenUsage {
+                        input_tokens: 50,
+                        output_tokens: 20,
+                        ..Default::default()
+                    },
                     stop_reason: StopReason::ToolUse,
                 })
             } else {
                 Ok(ChatResponse {
                     content: "Message sent successfully.".into(),
                     tool_calls: vec![],
-                    usage: TokenUsage { input_tokens: 80, output_tokens: 30, ..Default::default() },
+                    usage: TokenUsage {
+                        input_tokens: 80,
+                        output_tokens: 30,
+                        ..Default::default()
+                    },
                     stop_reason: StopReason::EndTurn,
                 })
             }
         }
 
         async fn chat_stream(
-            &self, _req: ChatRequest,
-        ) -> Result<Pin<Box<dyn Stream<Item = Result<ChatChunk, openkoi::infra::errors::OpenKoiError>> + Send>>, openkoi::infra::errors::OpenKoiError> {
+            &self,
+            _req: ChatRequest,
+        ) -> Result<
+            Pin<
+                Box<
+                    dyn Stream<Item = Result<ChatChunk, openkoi::infra::errors::OpenKoiError>>
+                        + Send,
+                >,
+            >,
+            openkoi::infra::errors::OpenKoiError,
+        > {
             Err(openkoi::infra::errors::OpenKoiError::Provider {
                 provider: "mock".into(),
                 message: "not supported".into(),
@@ -311,7 +339,10 @@ async fn test_executor_dispatches_integration_tools() {
             })
         }
 
-        async fn embed(&self, _: &[&str]) -> Result<Vec<Vec<f32>>, openkoi::infra::errors::OpenKoiError> {
+        async fn embed(
+            &self,
+            _: &[&str],
+        ) -> Result<Vec<Vec<f32>>, openkoi::infra::errors::OpenKoiError> {
             Ok(vec![])
         }
     }
@@ -344,13 +375,13 @@ async fn test_executor_dispatches_integration_tools() {
 
 #[tokio::test]
 async fn test_executor_unknown_tool_returns_error() {
+    use futures::Stream;
     use openkoi::core::executor::Executor;
     use openkoi::core::types::ExecutionContext;
     use openkoi::provider::*;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use futures::Stream;
     use std::pin::Pin;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
 
     /// Provider that calls an unknown tool then finishes.
     struct UnknownToolProvider {
@@ -359,11 +390,20 @@ async fn test_executor_unknown_tool_returns_error() {
 
     #[async_trait]
     impl ModelProvider for UnknownToolProvider {
-        fn id(&self) -> &str { "mock" }
-        fn name(&self) -> &str { "Mock" }
-        fn models(&self) -> Vec<ModelInfo> { vec![] }
+        fn id(&self) -> &str {
+            "mock"
+        }
+        fn name(&self) -> &str {
+            "Mock"
+        }
+        fn models(&self) -> Vec<ModelInfo> {
+            vec![]
+        }
 
-        async fn chat(&self, _req: ChatRequest) -> Result<ChatResponse, openkoi::infra::errors::OpenKoiError> {
+        async fn chat(
+            &self,
+            _req: ChatRequest,
+        ) -> Result<ChatResponse, openkoi::infra::errors::OpenKoiError> {
             let count = self.call_count.fetch_add(1, Ordering::SeqCst);
             if count == 0 {
                 Ok(ChatResponse {
@@ -373,22 +413,39 @@ async fn test_executor_unknown_tool_returns_error() {
                         name: "nonexistent_tool".into(),
                         arguments: serde_json::json!({}),
                     }],
-                    usage: TokenUsage { input_tokens: 30, output_tokens: 10, ..Default::default() },
+                    usage: TokenUsage {
+                        input_tokens: 30,
+                        output_tokens: 10,
+                        ..Default::default()
+                    },
                     stop_reason: StopReason::ToolUse,
                 })
             } else {
                 Ok(ChatResponse {
                     content: "Done.".into(),
                     tool_calls: vec![],
-                    usage: TokenUsage { input_tokens: 40, output_tokens: 10, ..Default::default() },
+                    usage: TokenUsage {
+                        input_tokens: 40,
+                        output_tokens: 10,
+                        ..Default::default()
+                    },
                     stop_reason: StopReason::EndTurn,
                 })
             }
         }
 
         async fn chat_stream(
-            &self, _req: ChatRequest,
-        ) -> Result<Pin<Box<dyn Stream<Item = Result<ChatChunk, openkoi::infra::errors::OpenKoiError>> + Send>>, openkoi::infra::errors::OpenKoiError> {
+            &self,
+            _req: ChatRequest,
+        ) -> Result<
+            Pin<
+                Box<
+                    dyn Stream<Item = Result<ChatChunk, openkoi::infra::errors::OpenKoiError>>
+                        + Send,
+                >,
+            >,
+            openkoi::infra::errors::OpenKoiError,
+        > {
             Err(openkoi::infra::errors::OpenKoiError::Provider {
                 provider: "mock".into(),
                 message: "not supported".into(),
@@ -396,7 +453,10 @@ async fn test_executor_unknown_tool_returns_error() {
             })
         }
 
-        async fn embed(&self, _: &[&str]) -> Result<Vec<Vec<f32>>, openkoi::infra::errors::OpenKoiError> {
+        async fn embed(
+            &self,
+            _: &[&str],
+        ) -> Result<Vec<Vec<f32>>, openkoi::infra::errors::OpenKoiError> {
             Ok(vec![])
         }
     }

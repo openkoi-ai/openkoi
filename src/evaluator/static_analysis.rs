@@ -165,10 +165,7 @@ impl StaticAnalyzer {
 /// Parse `cargo clippy` output (short format).
 ///
 /// Lines like: `src/main.rs:12:5: warning: unused variable`
-fn parse_clippy_output(
-    output: &str,
-    success: bool,
-) -> anyhow::Result<Option<LintResult>> {
+fn parse_clippy_output(output: &str, success: bool) -> anyhow::Result<Option<LintResult>> {
     let mut issues = Vec::new();
 
     for line in output.lines() {
@@ -246,10 +243,7 @@ fn parse_clippy_output(
 /// Parse ruff/flake8 output.
 ///
 /// Lines like: `src/foo.py:12:5: E302 expected 2 blank lines, got 1`
-fn parse_ruff_output(
-    output: &str,
-    success: bool,
-) -> anyhow::Result<Option<LintResult>> {
+fn parse_ruff_output(output: &str, success: bool) -> anyhow::Result<Option<LintResult>> {
     let mut issues = Vec::new();
 
     for line in output.lines() {
@@ -262,7 +256,12 @@ fn parse_ruff_output(
         // The code determines severity: E = error, W = warning, F = error
         let parts: Vec<&str> = trimmed.splitn(4, ':').collect();
         if parts.len() >= 4 {
-            let location = format!("{}:{}:{}", parts[0].trim(), parts[1].trim(), parts[2].trim());
+            let location = format!(
+                "{}:{}:{}",
+                parts[0].trim(),
+                parts[1].trim(),
+                parts[2].trim()
+            );
             let msg_raw = parts[3];
             let msg = msg_raw.trim();
 
@@ -301,10 +300,7 @@ fn parse_ruff_output(
 /// Parse `eslint` compact format output.
 ///
 /// Lines like: `/path/file.js: line 12, col 5, Warning - message (rule)`
-fn parse_eslint_output(
-    output: &str,
-    success: bool,
-) -> anyhow::Result<Option<LintResult>> {
+fn parse_eslint_output(output: &str, success: bool) -> anyhow::Result<Option<LintResult>> {
     let mut issues = Vec::new();
 
     for line in output.lines() {
@@ -322,24 +318,19 @@ fn parse_eslint_output(
             };
 
             // Extract location: everything before ": line"
-            let location = trimmed
-                .find(": line ")
-                .map(|idx| {
-                    // Build "file:line:col"
-                    let file = &trimmed[..idx];
-                    let after = &trimmed[idx + 7..]; // skip ": line "
-                    if let Some(col_idx) = after.find(", col ") {
-                        let line_num = &after[..col_idx];
-                        let rest = &after[col_idx + 6..]; // skip ", col "
-                        let col = rest
-                            .split(',')
-                            .next()
-                            .unwrap_or("0");
-                        format!("{}:{}:{}", file, line_num, col)
-                    } else {
-                        file.to_string()
-                    }
-                });
+            let location = trimmed.find(": line ").map(|idx| {
+                // Build "file:line:col"
+                let file = &trimmed[..idx];
+                let after = &trimmed[idx + 7..]; // skip ": line "
+                if let Some(col_idx) = after.find(", col ") {
+                    let line_num = &after[..col_idx];
+                    let rest = &after[col_idx + 6..]; // skip ", col "
+                    let col = rest.split(',').next().unwrap_or("0");
+                    format!("{}:{}:{}", file, line_num, col)
+                } else {
+                    file.to_string()
+                }
+            });
 
             // Extract message
             let message = if let Some(dash_idx) = trimmed.find(" - ") {
@@ -482,7 +473,10 @@ Found 2 errors.
         assert_eq!(result.issues.len(), 2);
         assert!(matches!(result.issues[0].severity, LintSeverity::Error));
         assert!(matches!(result.issues[1].severity, LintSeverity::Warning));
-        assert_eq!(result.issues[0].location.as_deref(), Some("src/foo.py:12:5"));
+        assert_eq!(
+            result.issues[0].location.as_deref(),
+            Some("src/foo.py:12:5")
+        );
     }
 
     #[test]
@@ -493,7 +487,8 @@ Found 2 errors.
 
     #[test]
     fn test_parse_eslint_issues() {
-        let output = "/src/App.js: line 5, col 3, Warning - Unexpected console statement (no-console)\n\
+        let output =
+            "/src/App.js: line 5, col 3, Warning - Unexpected console statement (no-console)\n\
                        /src/App.js: line 10, col 1, Error - Missing semicolon (semi)\n";
         let result = parse_eslint_output(output, false).unwrap().unwrap();
         assert!(!result.all_clean);

@@ -51,7 +51,10 @@ impl ModelProvider for MockProvider {
         }]
     }
 
-    async fn chat(&self, _request: ChatRequest) -> Result<ChatResponse, openkoi::infra::errors::OpenKoiError> {
+    async fn chat(
+        &self,
+        _request: ChatRequest,
+    ) -> Result<ChatResponse, openkoi::infra::errors::OpenKoiError> {
         Ok(ChatResponse {
             content: self.response_content.clone(),
             tool_calls: vec![],
@@ -68,7 +71,10 @@ impl ModelProvider for MockProvider {
     async fn chat_stream(
         &self,
         _request: ChatRequest,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<ChatChunk, openkoi::infra::errors::OpenKoiError>> + Send>>, openkoi::infra::errors::OpenKoiError> {
+    ) -> Result<
+        Pin<Box<dyn Stream<Item = Result<ChatChunk, openkoi::infra::errors::OpenKoiError>> + Send>>,
+        openkoi::infra::errors::OpenKoiError,
+    > {
         Err(openkoi::infra::errors::OpenKoiError::Provider {
             provider: "mock".into(),
             message: "Streaming not supported in mock".into(),
@@ -76,7 +82,10 @@ impl ModelProvider for MockProvider {
         })
     }
 
-    async fn embed(&self, _texts: &[&str]) -> Result<Vec<Vec<f32>>, openkoi::infra::errors::OpenKoiError> {
+    async fn embed(
+        &self,
+        _texts: &[&str],
+    ) -> Result<Vec<Vec<f32>>, openkoi::infra::errors::OpenKoiError> {
         Ok(vec![vec![0.1, 0.2, 0.3]])
     }
 }
@@ -104,13 +113,16 @@ async fn test_orchestrator_single_iteration_accept() {
         ..Default::default()
     };
 
-    let safety = SafetyChecker::from_config(
-        &IterationConfig::default(),
-        &SafetyConfig::default(),
-    );
+    let safety = SafetyChecker::from_config(&IterationConfig::default(), &SafetyConfig::default());
 
-    let mut orchestrator = Orchestrator::new(provider, "mock-model".into(), config, safety, Arc::new(SkillRegistry::empty()))
-        .with_project_dir(std::env::temp_dir().join("openkoi_test_nonexistent"));
+    let mut orchestrator = Orchestrator::new(
+        provider,
+        "mock-model".into(),
+        config,
+        safety,
+        Arc::new(SkillRegistry::empty()),
+    )
+    .with_project_dir(std::env::temp_dir().join("openkoi_test_nonexistent"));
     let task = TaskInput::new("Say hello");
     let ctx = default_session_context();
 
@@ -133,12 +145,21 @@ async fn test_orchestrator_multiple_iterations() {
     };
 
     let safety = SafetyChecker::from_config(
-        &IterationConfig { max_iterations: 3, ..Default::default() },
+        &IterationConfig {
+            max_iterations: 3,
+            ..Default::default()
+        },
         &SafetyConfig::default(),
     );
 
-    let mut orchestrator = Orchestrator::new(provider, "mock-model".into(), config, safety, Arc::new(SkillRegistry::empty()))
-        .with_project_dir(std::env::temp_dir().join("openkoi_test_nonexistent"));
+    let mut orchestrator = Orchestrator::new(
+        provider,
+        "mock-model".into(),
+        config,
+        safety,
+        Arc::new(SkillRegistry::empty()),
+    )
+    .with_project_dir(std::env::temp_dir().join("openkoi_test_nonexistent"));
     let task = TaskInput::new("Write a complex function");
     let ctx = default_session_context();
 
@@ -155,13 +176,16 @@ async fn test_orchestrator_with_tools_defined() {
     let provider: Arc<dyn ModelProvider> = Arc::new(MockProvider::new("Used a tool conceptually"));
 
     let config = IterationEngineConfig::default();
-    let safety = SafetyChecker::from_config(
-        &IterationConfig::default(),
-        &SafetyConfig::default(),
-    );
+    let safety = SafetyChecker::from_config(&IterationConfig::default(), &SafetyConfig::default());
 
-    let mut orchestrator = Orchestrator::new(provider, "mock-model".into(), config, safety, Arc::new(SkillRegistry::empty()))
-        .with_project_dir(std::env::temp_dir().join("openkoi_test_nonexistent"));
+    let mut orchestrator = Orchestrator::new(
+        provider,
+        "mock-model".into(),
+        config,
+        safety,
+        Arc::new(SkillRegistry::empty()),
+    )
+    .with_project_dir(std::env::temp_dir().join("openkoi_test_nonexistent"));
     let task = TaskInput::new("Search for files");
 
     let ctx = SessionContext {
@@ -185,13 +209,16 @@ async fn test_orchestrator_result_includes_skills_used() {
         max_iterations: 1,
         ..Default::default()
     };
-    let safety = SafetyChecker::from_config(
-        &IterationConfig::default(),
-        &SafetyConfig::default(),
-    );
+    let safety = SafetyChecker::from_config(&IterationConfig::default(), &SafetyConfig::default());
 
-    let mut orchestrator = Orchestrator::new(provider, "mock-model".into(), config, safety, Arc::new(SkillRegistry::empty()))
-        .with_project_dir(std::env::temp_dir().join("openkoi_test_nonexistent"));
+    let mut orchestrator = Orchestrator::new(
+        provider,
+        "mock-model".into(),
+        config,
+        safety,
+        Arc::new(SkillRegistry::empty()),
+    )
+    .with_project_dir(std::env::temp_dir().join("openkoi_test_nonexistent"));
     let task = TaskInput::new("Test");
     let ctx = default_session_context();
 
@@ -215,12 +242,23 @@ impl MockToolCallProvider {
 
 #[async_trait]
 impl ModelProvider for MockToolCallProvider {
-    fn id(&self) -> &str { "mock-tool" }
-    fn name(&self) -> &str { "Mock Tool Provider" }
-    fn models(&self) -> Vec<ModelInfo> { vec![] }
+    fn id(&self) -> &str {
+        "mock-tool"
+    }
+    fn name(&self) -> &str {
+        "Mock Tool Provider"
+    }
+    fn models(&self) -> Vec<ModelInfo> {
+        vec![]
+    }
 
-    async fn chat(&self, _request: ChatRequest) -> Result<ChatResponse, openkoi::infra::errors::OpenKoiError> {
-        let count = self.call_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    async fn chat(
+        &self,
+        _request: ChatRequest,
+    ) -> Result<ChatResponse, openkoi::infra::errors::OpenKoiError> {
+        let count = self
+            .call_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         if count == 0 {
             // First call: return a tool call
             Ok(ChatResponse {
@@ -230,7 +268,11 @@ impl ModelProvider for MockToolCallProvider {
                     name: "test__search".into(),
                     arguments: serde_json::json!({"query": "hello"}),
                 }],
-                usage: TokenUsage { input_tokens: 50, output_tokens: 20, ..Default::default() },
+                usage: TokenUsage {
+                    input_tokens: 50,
+                    output_tokens: 20,
+                    ..Default::default()
+                },
                 stop_reason: StopReason::ToolUse,
             })
         } else {
@@ -238,15 +280,23 @@ impl ModelProvider for MockToolCallProvider {
             Ok(ChatResponse {
                 content: "Found the answer: 42".into(),
                 tool_calls: vec![],
-                usage: TokenUsage { input_tokens: 80, output_tokens: 30, ..Default::default() },
+                usage: TokenUsage {
+                    input_tokens: 80,
+                    output_tokens: 30,
+                    ..Default::default()
+                },
                 stop_reason: StopReason::EndTurn,
             })
         }
     }
 
     async fn chat_stream(
-        &self, _request: ChatRequest,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<ChatChunk, openkoi::infra::errors::OpenKoiError>> + Send>>, openkoi::infra::errors::OpenKoiError> {
+        &self,
+        _request: ChatRequest,
+    ) -> Result<
+        Pin<Box<dyn Stream<Item = Result<ChatChunk, openkoi::infra::errors::OpenKoiError>> + Send>>,
+        openkoi::infra::errors::OpenKoiError,
+    > {
         Err(openkoi::infra::errors::OpenKoiError::Provider {
             provider: "mock-tool".into(),
             message: "not supported".into(),
@@ -254,7 +304,10 @@ impl ModelProvider for MockToolCallProvider {
         })
     }
 
-    async fn embed(&self, _texts: &[&str]) -> Result<Vec<Vec<f32>>, openkoi::infra::errors::OpenKoiError> {
+    async fn embed(
+        &self,
+        _texts: &[&str],
+    ) -> Result<Vec<Vec<f32>>, openkoi::infra::errors::OpenKoiError> {
         Ok(vec![])
     }
 }
@@ -281,7 +334,10 @@ async fn test_executor_tool_call_loop_without_mcp() {
         parameters: serde_json::json!({}),
     }];
 
-    let result = executor.execute(&context, &tools, None, None).await.unwrap();
+    let result = executor
+        .execute(&context, &tools, None, None)
+        .await
+        .unwrap();
     // Should complete (the mock returns final content on second call)
     assert!(result.content.contains("Found the answer: 42"));
     assert!(result.tool_calls_made >= 1);

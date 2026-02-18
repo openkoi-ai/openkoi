@@ -162,7 +162,10 @@ impl DocumentAdapter for GoogleSheetsAdapter {
             .client
             .get(&meta_url)
             .bearer_auth(&self.access_token)
-            .query(&[("fields", "spreadsheetId,properties.title,sheets.properties.title")])
+            .query(&[(
+                "fields",
+                "spreadsheetId,properties.title,sheets.properties.title",
+            )])
             .send()
             .await?;
 
@@ -220,9 +223,7 @@ impl DocumentAdapter for GoogleSheetsAdapter {
         // Parse content as TSV and write to Sheet1
         let values = parse_tsv_to_values(content);
 
-        let url = format!(
-            "{SHEETS_API_BASE}/spreadsheets/{doc_id}/values/Sheet1",
-        );
+        let url = format!("{SHEETS_API_BASE}/spreadsheets/{doc_id}/values/Sheet1",);
 
         let body = serde_json::json!({
             "range": "Sheet1",

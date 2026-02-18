@@ -31,9 +31,7 @@ impl MsOfficeAdapter {
         if !docs_dir.exists() {
             anyhow::bail!("Documents directory not found: {}", docs_dir.display());
         }
-        Ok(Self {
-            base_dir: docs_dir,
-        })
+        Ok(Self { base_dir: docs_dir })
     }
 
     /// Resolve a doc_id to a full path.
@@ -238,10 +236,7 @@ impl DocumentAdapter for MsOfficeAdapter {
         // Search for files matching the query in the base directory
         if self.base_dir.exists() {
             for entry in walkdir(&self.base_dir, 3) {
-                let name = entry
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("");
+                let name = entry.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
                 if name.to_lowercase().contains(&query_lower) {
                     let ext = entry

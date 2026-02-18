@@ -3,11 +3,7 @@
 // Exports learnings, sessions, patterns, or all data to JSON/YAML/CSV.
 
 /// Export data from the OpenKoi database.
-pub async fn run_export(
-    target: &str,
-    format: &str,
-    output: Option<&str>,
-) -> anyhow::Result<()> {
+pub async fn run_export(target: &str, format: &str, output: Option<&str>) -> anyhow::Result<()> {
     let db_path = crate::infra::paths::db_path();
     if !db_path.exists() {
         anyhow::bail!(

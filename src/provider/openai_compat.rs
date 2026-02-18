@@ -116,11 +116,12 @@ impl ModelProvider for OpenAICompatProvider {
             });
         }
 
-        let resp: serde_json::Value = response.json().await.map_err(|e| OpenKoiError::Provider {
-            provider: self.id_str.clone(),
-            message: e.to_string(),
-            retriable: false,
-        })?;
+        let resp: serde_json::Value =
+            response.json().await.map_err(|e| OpenKoiError::Provider {
+                provider: self.id_str.clone(),
+                message: e.to_string(),
+                retriable: false,
+            })?;
 
         let content = resp["choices"][0]["message"]["content"]
             .as_str()

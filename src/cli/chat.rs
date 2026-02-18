@@ -48,9 +48,7 @@ pub async fn run_chat(
     mcp_manager: Option<&mut McpManager>,
     integrations: Option<&IntegrationRegistry>,
 ) -> anyhow::Result<()> {
-    let memory_count = store
-        .map(|s| s.count_learnings().unwrap_or(0))
-        .unwrap_or(0);
+    let memory_count = store.map(|s| s.count_learnings().unwrap_or(0)).unwrap_or(0);
 
     eprintln!(
         "openkoi v{} | {} | memory: {} entries | $0.00 spent\n",
@@ -250,10 +248,7 @@ fn handle_slash_command(
                 eprintln!("  Model switched to {}", new_ref);
             } else {
                 // Treat as model name on the current provider
-                state.model_ref = ModelRef::new(
-                    state.model_ref.provider.clone(),
-                    arg.to_string(),
-                );
+                state.model_ref = ModelRef::new(state.model_ref.provider.clone(), arg.to_string());
                 eprintln!("  Model switched to {}", state.model_ref);
             }
         }
@@ -317,43 +312,39 @@ fn handle_slash_command(
             }
         }
 
-        "/learn" => {
-            match store {
-                Some(s) => {
-                    let miner = PatternMiner::new(s);
-                    match miner.mine(30) {
-                        Ok(patterns) if patterns.is_empty() => {
-                            eprintln!("  No new patterns detected (need more usage data).");
-                        }
-                        Ok(patterns) => {
-                            eprintln!("  {} pattern(s) detected:", patterns.len());
-                            for (i, p) in patterns.iter().enumerate() {
-                                eprintln!(
-                                    "  {}. {} [{}] ({}x, confidence: {:.2})",
-                                    i + 1,
-                                    p.description,
-                                    p.pattern_type.as_str(),
-                                    p.sample_count,
-                                    p.confidence,
-                                );
-                                if let Some(ref freq) = p.frequency {
-                                    eprintln!("     Frequency: {}", freq);
-                                }
-                            }
+        "/learn" => match store {
+            Some(s) => {
+                let miner = PatternMiner::new(s);
+                match miner.mine(30) {
+                    Ok(patterns) if patterns.is_empty() => {
+                        eprintln!("  No new patterns detected (need more usage data).");
+                    }
+                    Ok(patterns) => {
+                        eprintln!("  {} pattern(s) detected:", patterns.len());
+                        for (i, p) in patterns.iter().enumerate() {
                             eprintln!(
-                                "  Run `openkoi learn` for full pattern management."
+                                "  {}. {} [{}] ({}x, confidence: {:.2})",
+                                i + 1,
+                                p.description,
+                                p.pattern_type.as_str(),
+                                p.sample_count,
+                                p.confidence,
                             );
+                            if let Some(ref freq) = p.frequency {
+                                eprintln!("     Frequency: {}", freq);
+                            }
                         }
-                        Err(e) => {
-                            eprintln!("  Error mining patterns: {}", e);
-                        }
+                        eprintln!("  Run `openkoi learn` for full pattern management.");
+                    }
+                    Err(e) => {
+                        eprintln!("  Error mining patterns: {}", e);
                     }
                 }
-                None => {
-                    eprintln!("  Memory not available. Run `openkoi init` first.");
-                }
             }
-        }
+            None => {
+                eprintln!("  Memory not available. Run `openkoi init` first.");
+            }
+        },
 
         "/cost" => {
             eprintln!("  Session cost: ${:.4}", state.total_cost);

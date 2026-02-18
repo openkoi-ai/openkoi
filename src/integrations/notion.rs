@@ -26,10 +26,7 @@ impl NotionAdapter {
     }
 
     /// Make an authenticated GET request to the Notion API.
-    async fn api_get<T: serde::de::DeserializeOwned>(
-        &self,
-        path: &str,
-    ) -> anyhow::Result<T> {
+    async fn api_get<T: serde::de::DeserializeOwned>(&self, path: &str) -> anyhow::Result<T> {
         let url = format!("{NOTION_API_BASE}{path}");
         let resp = self
             .client

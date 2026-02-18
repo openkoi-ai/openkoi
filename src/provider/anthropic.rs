@@ -170,11 +170,12 @@ impl ModelProvider for AnthropicProvider {
             });
         }
 
-        let resp: serde_json::Value = response.json().await.map_err(|e| OpenKoiError::Provider {
-            provider: "anthropic".into(),
-            message: format!("Failed to parse response: {}", e),
-            retriable: false,
-        })?;
+        let resp: serde_json::Value =
+            response.json().await.map_err(|e| OpenKoiError::Provider {
+                provider: "anthropic".into(),
+                message: format!("Failed to parse response: {}", e),
+                retriable: false,
+            })?;
 
         let content = resp["content"]
             .as_array()

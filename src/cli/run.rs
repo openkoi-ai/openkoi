@@ -88,7 +88,9 @@ pub async fn run_task(
         model_ref,
     );
 
-    let result = orchestrator.run(task, &ctx, mcp_manager, integrations).await?;
+    let result = orchestrator
+        .run(task, &ctx, mcp_manager, integrations)
+        .await?;
 
     // Display result
     println!("{}", result.output.content);

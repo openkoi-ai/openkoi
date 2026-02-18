@@ -49,9 +49,7 @@ impl TestRunner {
         if project_dir.join("go.mod").exists() {
             return self.run_go_test(project_dir).await;
         }
-        if project_dir.join("pyproject.toml").exists()
-            || project_dir.join("pytest.ini").exists()
-        {
+        if project_dir.join("pyproject.toml").exists() || project_dir.join("pytest.ini").exists() {
             return self.run_pytest(project_dir).await;
         }
         if project_dir.join("package.json").exists() {
@@ -137,10 +135,7 @@ impl TestRunner {
 /// Parse `cargo test` output.
 ///
 /// Typical output line: `test result: ok. 46 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out`
-fn parse_cargo_test_output(
-    output: &str,
-    success: bool,
-) -> anyhow::Result<Option<TestResult>> {
+fn parse_cargo_test_output(output: &str, success: bool) -> anyhow::Result<Option<TestResult>> {
     let mut total_passed: u32 = 0;
     let mut total_failed: u32 = 0;
     let mut failures = Vec::new();
@@ -191,10 +186,7 @@ fn parse_cargo_test_output(
 /// Parse `go test` output.
 ///
 /// Lines like: `--- FAIL: TestFoo (0.00s)` or `ok  	package	0.005s`
-fn parse_go_test_output(
-    output: &str,
-    success: bool,
-) -> anyhow::Result<Option<TestResult>> {
+fn parse_go_test_output(output: &str, success: bool) -> anyhow::Result<Option<TestResult>> {
     let mut passed: u32 = 0;
     let mut failed: u32 = 0;
     let mut failures = Vec::new();
@@ -236,10 +228,7 @@ fn parse_go_test_output(
 /// Parse `pytest` output.
 ///
 /// Summary line: `5 passed, 2 failed in 0.12s` or `5 passed in 0.12s`
-fn parse_pytest_output(
-    output: &str,
-    success: bool,
-) -> anyhow::Result<Option<TestResult>> {
+fn parse_pytest_output(output: &str, success: bool) -> anyhow::Result<Option<TestResult>> {
     let mut passed: u32 = 0;
     let mut failed: u32 = 0;
     let mut failures = Vec::new();
@@ -289,10 +278,7 @@ fn parse_pytest_output(
 ///
 /// Jest summary: `Tests: 2 failed, 8 passed, 10 total`
 /// Vitest summary: `Tests  2 failed | 8 passed (10)`
-fn parse_npm_test_output(
-    output: &str,
-    success: bool,
-) -> anyhow::Result<Option<TestResult>> {
+fn parse_npm_test_output(output: &str, success: bool) -> anyhow::Result<Option<TestResult>> {
     let mut passed: u32 = 0;
     let mut failed: u32 = 0;
     let mut failures = Vec::new();
@@ -311,7 +297,8 @@ fn parse_npm_test_output(
         }
 
         // Jest failure: "  ● test name"
-        if trimmed.starts_with("● ") || trimmed.starts_with("✕ ") || trimmed.starts_with("× ") {
+        if trimmed.starts_with("● ") || trimmed.starts_with("✕ ") || trimmed.starts_with("× ")
+        {
             let name = trimmed[2..].trim().to_string();
             failures.push(TestFailure {
                 name,
@@ -322,11 +309,7 @@ fn parse_npm_test_output(
 
         // Vitest failure: " FAIL  src/foo.test.ts > test name"
         if trimmed.starts_with("FAIL") && trimmed.contains(" > ") {
-            let name = trimmed
-                .split(" > ")
-                .last()
-                .unwrap_or("unknown")
-                .to_string();
+            let name = trimmed.split(" > ").last().unwrap_or("unknown").to_string();
             failures.push(TestFailure {
                 name,
                 message: trimmed.to_string(),
@@ -418,8 +401,14 @@ mod tests {
 
     #[test]
     fn test_extract_number_before() {
-        assert_eq!(extract_number_before("46 passed; 0 failed", " passed"), Some(46));
-        assert_eq!(extract_number_before("46 passed; 0 failed", " failed"), Some(0));
+        assert_eq!(
+            extract_number_before("46 passed; 0 failed", " passed"),
+            Some(46)
+        );
+        assert_eq!(
+            extract_number_before("46 passed; 0 failed", " failed"),
+            Some(0)
+        );
         assert_eq!(extract_number_before("no match here", " passed"), None);
         assert_eq!(extract_number_before("", " passed"), None);
     }

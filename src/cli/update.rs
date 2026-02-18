@@ -3,7 +3,6 @@
 // Checks GitHub releases for the latest version and downloads the binary
 // for the current platform.
 
-
 const GITHUB_REPO: &str = "openkoi/openkoi";
 const RELEASES_API: &str = "https://api.github.com/repos/openkoi/openkoi/releases/latest";
 
@@ -71,9 +70,9 @@ pub async fn run_update(version: Option<String>, check_only: bool) -> anyhow::Re
 
     // Determine platform asset name
     let asset_name = platform_asset_name()?;
-    let assets = release["assets"].as_array().ok_or_else(|| {
-        anyhow::anyhow!("No assets found in release")
-    })?;
+    let assets = release["assets"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("No assets found in release"))?;
 
     let asset = assets
         .iter()
@@ -99,7 +98,10 @@ pub async fn run_update(version: Option<String>, check_only: bool) -> anyhow::Re
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("Missing download URL"))?;
 
-    println!("Downloading {}...", asset["name"].as_str().unwrap_or("binary"));
+    println!(
+        "Downloading {}...",
+        asset["name"].as_str().unwrap_or("binary")
+    );
 
     let binary_data = client
         .get(download_url)
@@ -129,7 +131,11 @@ pub async fn run_update(version: Option<String>, check_only: bool) -> anyhow::Re
     std::fs::rename(&current_exe, &backup_path)?;
     std::fs::rename(&temp_path, &current_exe)?;
 
-    println!("Updated to v{}. Backup saved to {}", latest_tag, backup_path.display());
+    println!(
+        "Updated to v{}. Backup saved to {}",
+        latest_tag,
+        backup_path.display()
+    );
     println!("Restart openkoi to use the new version.");
 
     Ok(())

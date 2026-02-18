@@ -326,8 +326,7 @@ impl EvaluatorFramework {
             .await
             .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-        let parsed =
-            parse_incremental_eval_response(&response.content, &skill.metadata.dimensions);
+        let parsed = parse_incremental_eval_response(&response.content, &skill.metadata.dimensions);
 
         Ok(IncrementalEvalResult {
             dimensions: parsed.dimensions,
@@ -559,9 +558,7 @@ fn parse_incremental_eval_response(
                 // "- [SEVERITY] title: description"
                 if trimmed.starts_with("- [") || trimmed.starts_with("-[") {
                     finding_counter += 1;
-                    let rest = trimmed
-                        .trim_start_matches("- [")
-                        .trim_start_matches("-[");
+                    let rest = trimmed.trim_start_matches("- [").trim_start_matches("-[");
 
                     if let Some((severity_str, after)) = rest.split_once(']') {
                         let severity = match severity_str.trim().to_uppercase().as_str() {
@@ -611,11 +608,7 @@ pub(crate) fn composite_score(dimensions: &[DimensionScore]) -> f32 {
         return dimensions.iter().map(|d| d.score).sum::<f32>() / dimensions.len() as f32;
     }
 
-    dimensions
-        .iter()
-        .map(|d| d.score * d.weight)
-        .sum::<f32>()
-        / total_weight
+    dimensions.iter().map(|d| d.score * d.weight).sum::<f32>() / total_weight
 }
 
 // ─── Evaluation Calibration ─────────────────────────────────────────────────
@@ -798,30 +791,21 @@ mod tests {
 
     #[test]
     fn test_composite_score_weighted() {
-        let dims = vec![
-            dim("correctness", 1.0, 0.6),
-            dim("style", 0.5, 0.4),
-        ];
+        let dims = vec![dim("correctness", 1.0, 0.6), dim("style", 0.5, 0.4)];
         // (1.0 * 0.6 + 0.5 * 0.4) / (0.6 + 0.4) = (0.6 + 0.2) / 1.0 = 0.8
         assert!((composite_score(&dims) - 0.80).abs() < 0.001);
     }
 
     #[test]
     fn test_composite_score_zero_weights() {
-        let dims = vec![
-            dim("a", 0.6, 0.0),
-            dim("b", 0.8, 0.0),
-        ];
+        let dims = vec![dim("a", 0.6, 0.0), dim("b", 0.8, 0.0)];
         // Zero weight: simple average = (0.6 + 0.8) / 2 = 0.7
         assert!((composite_score(&dims) - 0.70).abs() < 0.001);
     }
 
     #[test]
     fn test_composite_score_unequal_weights() {
-        let dims = vec![
-            dim("a", 0.90, 0.1),
-            dim("b", 0.50, 0.9),
-        ];
+        let dims = vec![dim("a", 0.90, 0.1), dim("b", 0.50, 0.9)];
         let expected = (0.90 * 0.1 + 0.50 * 0.9) / (0.1 + 0.9);
         assert!((composite_score(&dims) - expected).abs() < 0.001);
     }
@@ -1046,7 +1030,7 @@ SUGGESTION: Keep improving.";
         }
         // Now has 5 scores, normalization should kick in
         let norm = cal.normalize("llm", 0.80); // mean is 0.80
-        // 0.80 is at the mean → normalized should be close to 0.5
+                                               // 0.80 is at the mean → normalized should be close to 0.5
         assert!((norm - 0.5).abs() < 0.1);
     }
 

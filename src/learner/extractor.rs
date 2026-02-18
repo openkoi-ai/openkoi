@@ -19,11 +19,7 @@ impl LearningExtractor {
     }
 
     /// Extract learnings from a completed iteration run.
-    pub async fn extract(
-        &self,
-        cycles: &[IterationCycle],
-        store: Option<&Store>,
-    ) -> Vec<Learning> {
+    pub async fn extract(&self, cycles: &[IterationCycle], store: Option<&Store>) -> Vec<Learning> {
         let mut learnings = Vec::new();
 
         // 1. Score progression analysis (zero tokens)
@@ -199,11 +195,7 @@ impl LearningExtractor {
 }
 
 /// Parse LLM-generated learnings from response text.
-fn parse_llm_learnings(
-    response: &str,
-    source_task: &str,
-    category: Option<&str>,
-) -> Vec<Learning> {
+fn parse_llm_learnings(response: &str, source_task: &str, category: Option<&str>) -> Vec<Learning> {
     let mut learnings = Vec::new();
     let mut current_type: Option<LearningType> = None;
     let mut current_content: Option<String> = None;

@@ -7,8 +7,18 @@ pub async fn run_connect(app: &str) -> anyhow::Result<()> {
     match app {
         "slack" => connect_integration("slack", "Slack", "SLACK_BOT_TOKEN", "xoxb-...").await,
         "notion" => connect_integration("notion", "Notion", "NOTION_API_KEY", "secret_...").await,
-        "discord" => connect_integration("discord", "Discord", "DISCORD_BOT_TOKEN", "<bot-token>").await,
-        "telegram" => connect_integration("telegram", "Telegram", "TELEGRAM_BOT_TOKEN", "123456:ABC-DEF...").await,
+        "discord" => {
+            connect_integration("discord", "Discord", "DISCORD_BOT_TOKEN", "<bot-token>").await
+        }
+        "telegram" => {
+            connect_integration(
+                "telegram",
+                "Telegram",
+                "TELEGRAM_BOT_TOKEN",
+                "123456:ABC-DEF...",
+            )
+            .await
+        }
         "imessage" => connect_imessage().await,
         "google_docs" | "gdocs" => connect_google_docs().await,
         "google_sheets" | "gsheets" => connect_google_sheets().await,
@@ -222,7 +232,11 @@ async fn show_connection_status() -> anyhow::Result<()> {
 
     for (id, name) in &integrations {
         let has_creds = creds.has_credentials(id);
-        let status = if has_creds { "configured" } else { "not configured" };
+        let status = if has_creds {
+            "configured"
+        } else {
+            "not configured"
+        };
         let marker = if has_creds { "+" } else { "-" };
 
         println!("  [{marker}] {name}: {status}");
@@ -253,7 +267,10 @@ async fn show_connection_status() -> anyhow::Result<()> {
         let home = crate::infra::paths::dirs_home();
         let docs_dir = home.join("Documents");
         if docs_dir.exists() {
-            println!("  [+] MS Office (Local): available ({})", docs_dir.display());
+            println!(
+                "  [+] MS Office (Local): available ({})",
+                docs_dir.display()
+            );
         } else {
             println!("  [-] MS Office (Local): Documents directory not found");
         }
@@ -267,28 +284,46 @@ async fn show_connection_status() -> anyhow::Result<()> {
 async fn validate_integration(id: &str, creds: &IntegrationCredentials) -> anyhow::Result<String> {
     match id {
         "slack" => {
-            let c = creds.slack.as_ref().ok_or_else(|| anyhow::anyhow!("No Slack credentials"))?;
+            let c = creds
+                .slack
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("No Slack credentials"))?;
             let adapter = crate::integrations::slack::SlackAdapter::new(c.bot_token.clone());
             adapter.validate().await
         }
         "discord" => {
-            let c = creds.discord.as_ref().ok_or_else(|| anyhow::anyhow!("No Discord credentials"))?;
+            let c = creds
+                .discord
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("No Discord credentials"))?;
             let adapter = crate::integrations::discord::DiscordAdapter::new(c.bot_token.clone());
             adapter.validate().await
         }
         "telegram" => {
-            let c = creds.telegram.as_ref().ok_or_else(|| anyhow::anyhow!("No Telegram credentials"))?;
+            let c = creds
+                .telegram
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("No Telegram credentials"))?;
             let adapter = crate::integrations::telegram::TelegramAdapter::new(c.bot_token.clone());
             adapter.validate().await
         }
         "notion" => {
-            let c = creds.notion.as_ref().ok_or_else(|| anyhow::anyhow!("No Notion credentials"))?;
+            let c = creds
+                .notion
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("No Notion credentials"))?;
             let adapter = crate::integrations::notion::NotionAdapter::new(c.api_key.clone());
             adapter.validate().await
         }
         "google_docs" => {
-            let c = creds.google.as_ref().ok_or_else(|| anyhow::anyhow!("No Google credentials"))?;
-            let token = c.access_token.as_ref().ok_or_else(|| anyhow::anyhow!("No access token"))?;
+            let c = creds
+                .google
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("No Google credentials"))?;
+            let token = c
+                .access_token
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("No access token"))?;
             let adapter = crate::integrations::google_docs::GoogleDocsAdapter::new(
                 token.clone(),
                 c.refresh_token.clone(),
@@ -298,8 +333,14 @@ async fn validate_integration(id: &str, creds: &IntegrationCredentials) -> anyho
             adapter.validate().await
         }
         "google_sheets" => {
-            let c = creds.google.as_ref().ok_or_else(|| anyhow::anyhow!("No Google credentials"))?;
-            let token = c.access_token.as_ref().ok_or_else(|| anyhow::anyhow!("No access token"))?;
+            let c = creds
+                .google
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("No Google credentials"))?;
+            let token = c
+                .access_token
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("No access token"))?;
             let adapter = crate::integrations::google_sheets::GoogleSheetsAdapter::new(
                 token.clone(),
                 c.refresh_token.clone(),
@@ -309,7 +350,10 @@ async fn validate_integration(id: &str, creds: &IntegrationCredentials) -> anyho
             adapter.validate().await
         }
         "email" => {
-            let c = creds.email.as_ref().ok_or_else(|| anyhow::anyhow!("No email credentials"))?;
+            let c = creds
+                .email
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("No email credentials"))?;
             let adapter = crate::integrations::email::EmailAdapter::new(
                 c.imap_host.clone(),
                 c.imap_port,
@@ -393,9 +437,7 @@ async fn connect_email() -> anyhow::Result<()> {
         }
     } else {
         // Interactive setup
-        match inquire::Text::new("Email address:")
-            .prompt_skippable()
-        {
+        match inquire::Text::new("Email address:").prompt_skippable() {
             Ok(Some(email)) if !email.is_empty() => {
                 match inquire::Password::new("Password/App password:")
                     .with_display_mode(inquire::PasswordDisplayMode::Masked)
@@ -460,7 +502,10 @@ async fn connect_msoffice() -> anyhow::Result<()> {
             }
         }
 
-        println!("  Found: {} .docx, {} .xlsx files (top level)", docx_count, xlsx_count);
+        println!(
+            "  Found: {} .docx, {} .xlsx files (top level)",
+            docx_count, xlsx_count
+        );
         println!();
         println!("  MS Office integration is ready to use.");
         println!("  The agent can read/write .docx and .xlsx files in ~/Documents/");

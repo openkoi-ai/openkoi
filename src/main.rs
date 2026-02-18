@@ -60,8 +60,7 @@ async fn run() -> anyhow::Result<()> {
         }
         Some(Commands::Dashboard) => {
             let store = init_store();
-            return openkoi::tui::run_dashboard(store.as_ref(), &config)
-                .map_err(|e| e.into());
+            return openkoi::tui::run_dashboard(store.as_ref(), &config).map_err(|e| e.into());
         }
         Some(Commands::Update { version, check }) => {
             return openkoi::cli::update::run_update(version.clone(), *check).await;
@@ -71,8 +70,7 @@ async fn run() -> anyhow::Result<()> {
             format,
             output,
         }) => {
-            return openkoi::cli::export::run_export(target, format, output.as_deref())
-                .await;
+            return openkoi::cli::export::run_export(target, format, output.as_deref()).await;
         }
         Some(Commands::Migrate { status, rollback }) => {
             return openkoi::cli::migrate::run_migrate(*status, *rollback).await;
@@ -198,7 +196,10 @@ fn init_store() -> Option<Store> {
         Ok(conn) => {
             // Run migrations
             if let Err(e) = schema::run_migrations(&conn) {
-                tracing::warn!("Database migration failed: {}. Memory features disabled.", e);
+                tracing::warn!(
+                    "Database migration failed: {}. Memory features disabled.",
+                    e
+                );
                 return None;
             }
             Some(Store::new(conn))
@@ -327,7 +328,10 @@ async fn run_doctor(config: &Config) -> anyhow::Result<()> {
                 ok += 1;
             } else {
                 fail += 1;
-                eprintln!("    WARN: '{}' ({}) not found in PATH", cfg.name, cfg.command);
+                eprintln!(
+                    "    WARN: '{}' ({}) not found in PATH",
+                    cfg.name, cfg.command
+                );
             }
         }
         eprintln!("{} ok, {} failed", ok, fail);
@@ -371,9 +375,7 @@ async fn run_doctor(config: &Config) -> anyhow::Result<()> {
     let db_path = openkoi::infra::paths::db_path();
     eprint!("  Checking database... ");
     if db_path.exists() {
-        let size = std::fs::metadata(&db_path)
-            .map(|m| m.len())
-            .unwrap_or(0);
+        let size = std::fs::metadata(&db_path).map(|m| m.len()).unwrap_or(0);
         eprintln!("ok ({}KB)", size / 1024);
     } else {
         eprintln!("not initialized (run `openkoi init`)");
@@ -413,9 +415,7 @@ async fn run_daemon_command(action: DaemonAction, config: &Config) -> anyhow::Re
             // Initialize integration registry for the daemon
             let (_tools, registry) = init_integrations(config);
             if registry.list().is_empty() {
-                println!(
-                    "No integrations connected. Run `openkoi connect <app>` first."
-                );
+                println!("No integrations connected. Run `openkoi connect <app>` first.");
                 return Ok(());
             }
 
@@ -519,36 +519,32 @@ fn init_integrations(config: &Config) -> (Vec<openkoi::provider::ToolDef>, Integ
 
     // Slack
     if let Some(ref slack_creds) = creds.slack {
-        let adapter = openkoi::integrations::slack::SlackAdapter::new(
-            slack_creds.bot_token.clone(),
-        );
+        let adapter =
+            openkoi::integrations::slack::SlackAdapter::new(slack_creds.bot_token.clone());
         registry.register(Box::new(adapter));
         tracing::info!("Integration: Slack connected");
     }
 
     // Discord
     if let Some(ref discord_creds) = creds.discord {
-        let adapter = openkoi::integrations::discord::DiscordAdapter::new(
-            discord_creds.bot_token.clone(),
-        );
+        let adapter =
+            openkoi::integrations::discord::DiscordAdapter::new(discord_creds.bot_token.clone());
         registry.register(Box::new(adapter));
         tracing::info!("Integration: Discord connected");
     }
 
     // Telegram
     if let Some(ref telegram_creds) = creds.telegram {
-        let adapter = openkoi::integrations::telegram::TelegramAdapter::new(
-            telegram_creds.bot_token.clone(),
-        );
+        let adapter =
+            openkoi::integrations::telegram::TelegramAdapter::new(telegram_creds.bot_token.clone());
         registry.register(Box::new(adapter));
         tracing::info!("Integration: Telegram connected");
     }
 
     // Notion
     if let Some(ref notion_creds) = creds.notion {
-        let adapter = openkoi::integrations::notion::NotionAdapter::new(
-            notion_creds.api_key.clone(),
-        );
+        let adapter =
+            openkoi::integrations::notion::NotionAdapter::new(notion_creds.api_key.clone());
         registry.register(Box::new(adapter));
         tracing::info!("Integration: Notion connected");
     }

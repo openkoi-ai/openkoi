@@ -296,11 +296,8 @@ mod tests {
 
     #[test]
     fn test_parse_target_with_team() {
-        let adapter = MsTeamsAdapter::new(
-            "token".into(),
-            "tenant".into(),
-            Some("default-team".into()),
-        );
+        let adapter =
+            MsTeamsAdapter::new("token".into(), "tenant".into(), Some("default-team".into()));
         let (team, channel) = adapter.parse_target("channel-123").unwrap();
         assert_eq!(team, "default-team");
         assert_eq!(channel, "channel-123");

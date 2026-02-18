@@ -8,8 +8,7 @@ static PROJECT_DIRS: OnceLock<ProjectDirs> = OnceLock::new();
 
 fn project_dirs() -> &'static ProjectDirs {
     PROJECT_DIRS.get_or_init(|| {
-        ProjectDirs::from("", "", "openkoi")
-            .expect("Could not determine home directory")
+        ProjectDirs::from("", "", "openkoi").expect("Could not determine home directory")
     })
 }
 

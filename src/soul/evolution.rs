@@ -27,11 +27,7 @@ impl SoulEvolution {
 
     /// Check if the soul should evolve based on accumulated learnings.
     /// Called periodically (e.g., every 50 tasks).
-    pub async fn check_evolution(
-        &self,
-        soul: &Soul,
-        store: &Store,
-    ) -> Result<Option<SoulUpdate>> {
+    pub async fn check_evolution(&self, soul: &Soul, store: &Store) -> Result<Option<SoulUpdate>> {
         let learnings = store.query_high_confidence_learnings(0.8, 20)?;
         let anti_patterns = store.query_learnings_by_type("anti_pattern", 10)?;
 

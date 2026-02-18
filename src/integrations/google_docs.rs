@@ -197,9 +197,7 @@ impl DocumentAdapter for GoogleDocsAdapter {
             id: doc.document_id,
             title: doc.title.unwrap_or_else(|| "Untitled".into()),
             content,
-            url: Some(format!(
-                "https://docs.google.com/document/d/{doc_id}/edit"
-            )),
+            url: Some(format!("https://docs.google.com/document/d/{doc_id}/edit")),
         })
     }
 
@@ -267,7 +265,9 @@ impl DocumentAdapter for GoogleDocsAdapter {
 
     async fn search(&self, query: &str) -> anyhow::Result<Vec<DocumentRef>> {
         // Use Google Drive API to search for documents
-        let q = format!("name contains '{query}' and mimeType = 'application/vnd.google-apps.document'");
+        let q = format!(
+            "name contains '{query}' and mimeType = 'application/vnd.google-apps.document'"
+        );
         let url = format!("{DRIVE_API_BASE}/files");
         let resp = self
             .client

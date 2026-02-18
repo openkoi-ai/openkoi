@@ -46,11 +46,7 @@ pub async fn discover_providers() -> Vec<DiscoveredProvider> {
         ("OPENAI_API_KEY", "openai", "gpt-4.1"),
         ("GOOGLE_API_KEY", "google", "gemini-2.5-pro"),
         ("GROQ_API_KEY", "groq", "llama-3.3-70b-versatile"),
-        (
-            "OPENROUTER_API_KEY",
-            "openrouter",
-            "auto",
-        ),
+        ("OPENROUTER_API_KEY", "openrouter", "auto"),
         (
             "TOGETHER_API_KEY",
             "together",
@@ -181,7 +177,12 @@ async fn import_claude_keychain() -> Option<DiscoveredProvider> {
 #[cfg(target_os = "macos")]
 pub async fn load_claude_keychain_token() -> Option<String> {
     let output = tokio::process::Command::new("security")
-        .args(["find-generic-password", "-s", "Claude Code-credentials", "-w"])
+        .args([
+            "find-generic-password",
+            "-s",
+            "Claude Code-credentials",
+            "-w",
+        ])
         .output()
         .await
         .ok()?;
@@ -230,10 +231,7 @@ pub async fn probe_ollama() -> anyhow::Result<Vec<String>> {
         .timeout(std::time::Duration::from_secs(2))
         .build()?;
 
-    let resp = client
-        .get("http://localhost:11434/api/tags")
-        .send()
-        .await?;
+    let resp = client.get("http://localhost:11434/api/tags").send().await?;
 
     if !resp.status().is_success() {
         anyhow::bail!("Ollama not responding");
@@ -269,10 +267,7 @@ pub fn pick_best_ollama_model(models: &[String]) -> String {
             return m.clone();
         }
     }
-    models
-        .first()
-        .cloned()
-        .unwrap_or_else(|| "llama3.3".into())
+    models.first().cloned().unwrap_or_else(|| "llama3.3".into())
 }
 
 /// Default model for a given provider name.

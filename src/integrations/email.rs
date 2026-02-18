@@ -72,9 +72,9 @@ impl EmailAdapter {
             .connect()
             .map_err(|e| anyhow::anyhow!("IMAP connect failed: {}", e))?;
 
-        let mut session = client.login(&self.email, &self.password).map_err(|e| {
-            anyhow::anyhow!("IMAP login failed: {}", e.0)
-        })?;
+        let mut session = client
+            .login(&self.email, &self.password)
+            .map_err(|e| anyhow::anyhow!("IMAP login failed: {}", e.0))?;
 
         let mailbox = session.select("INBOX")?;
         let count = mailbox.exists;
@@ -92,9 +92,9 @@ impl EmailAdapter {
             .connect()
             .map_err(|e| anyhow::anyhow!("IMAP connect failed: {}", e))?;
 
-        let mut session = client.login(&self.email, &self.password).map_err(|e| {
-            anyhow::anyhow!("IMAP login failed: {}", e.0)
-        })?;
+        let mut session = client
+            .login(&self.email, &self.password)
+            .map_err(|e| anyhow::anyhow!("IMAP login failed: {}", e.0))?;
 
         let mailbox = session.select(folder)?;
         let total = mailbox.exists;
@@ -122,12 +122,16 @@ impl EmailAdapter {
                     .as_ref()
                     .and_then(|addrs: &Vec<_>| addrs.first())
                     .map(|a| {
-                        let mailbox = a.mailbox.as_ref().map(|m| {
-                            std::str::from_utf8(m).unwrap_or("unknown")
-                        }).unwrap_or("unknown");
-                        let host = a.host.as_ref().map(|h| {
-                            std::str::from_utf8(h).unwrap_or("unknown")
-                        }).unwrap_or("unknown");
+                        let mailbox = a
+                            .mailbox
+                            .as_ref()
+                            .map(|m| std::str::from_utf8(m).unwrap_or("unknown"))
+                            .unwrap_or("unknown");
+                        let host = a
+                            .host
+                            .as_ref()
+                            .map(|h| std::str::from_utf8(h).unwrap_or("unknown"))
+                            .unwrap_or("unknown");
                         format!("{}@{}", mailbox, host)
                     })
                     .unwrap_or_else(|| "unknown".into());
@@ -135,17 +139,13 @@ impl EmailAdapter {
                 let subj = env
                     .subject
                     .as_ref()
-                    .map(|s| {
-                        std::str::from_utf8(s).unwrap_or("(no subject)").to_string()
-                    })
+                    .map(|s| std::str::from_utf8(s).unwrap_or("(no subject)").to_string())
                     .unwrap_or_else(|| "(no subject)".into());
 
                 let dt = env
                     .date
                     .as_ref()
-                    .map(|d| {
-                        std::str::from_utf8(d).unwrap_or("").to_string()
-                    })
+                    .map(|d| std::str::from_utf8(d).unwrap_or("").to_string())
                     .unwrap_or_default();
 
                 (from, subj, dt)
@@ -188,9 +188,9 @@ impl EmailAdapter {
             .connect()
             .map_err(|e| anyhow::anyhow!("IMAP connect failed: {}", e))?;
 
-        let mut session = client.login(&self.email, &self.password).map_err(|e| {
-            anyhow::anyhow!("IMAP login failed: {}", e.0)
-        })?;
+        let mut session = client
+            .login(&self.email, &self.password)
+            .map_err(|e| anyhow::anyhow!("IMAP login failed: {}", e.0))?;
 
         session.select("INBOX")?;
 
@@ -204,11 +204,7 @@ impl EmailAdapter {
             // Take at most 20 results — sort descending for recency
             let mut uid_vec: Vec<u32> = uids.into_iter().collect();
             uid_vec.sort_unstable_by(|a, b| b.cmp(a));
-            let uid_list: Vec<String> = uid_vec
-                .iter()
-                .take(20)
-                .map(|u| u.to_string())
-                .collect();
+            let uid_list: Vec<String> = uid_vec.iter().take(20).map(|u| u.to_string()).collect();
             let uid_range = uid_list.join(",");
 
             let messages = session.fetch(&uid_range, "(UID ENVELOPE BODY[TEXT])")?;
@@ -222,12 +218,16 @@ impl EmailAdapter {
                         .as_ref()
                         .and_then(|addrs: &Vec<_>| addrs.first())
                         .map(|a| {
-                            let mailbox = a.mailbox.as_ref().map(|m| {
-                                std::str::from_utf8(m).unwrap_or("unknown")
-                            }).unwrap_or("unknown");
-                            let host = a.host.as_ref().map(|h| {
-                                std::str::from_utf8(h).unwrap_or("unknown")
-                            }).unwrap_or("unknown");
+                            let mailbox = a
+                                .mailbox
+                                .as_ref()
+                                .map(|m| std::str::from_utf8(m).unwrap_or("unknown"))
+                                .unwrap_or("unknown");
+                            let host = a
+                                .host
+                                .as_ref()
+                                .map(|h| std::str::from_utf8(h).unwrap_or("unknown"))
+                                .unwrap_or("unknown");
                             format!("{}@{}", mailbox, host)
                         })
                         .unwrap_or_else(|| "unknown".into());
@@ -235,17 +235,13 @@ impl EmailAdapter {
                     let subj = env
                         .subject
                         .as_ref()
-                        .map(|s| {
-                            std::str::from_utf8(s).unwrap_or("(no subject)").to_string()
-                        })
+                        .map(|s| std::str::from_utf8(s).unwrap_or("(no subject)").to_string())
                         .unwrap_or_else(|| "(no subject)".into());
 
                     let dt = env
                         .date
                         .as_ref()
-                        .map(|d| {
-                            std::str::from_utf8(d).unwrap_or("").to_string()
-                        })
+                        .map(|d| std::str::from_utf8(d).unwrap_or("").to_string())
                         .unwrap_or_default();
 
                     (from, subj, dt)
@@ -281,8 +277,8 @@ impl EmailAdapter {
     /// Send an email via SMTP.
     fn send_email(&self, to: &str, content: &str) -> anyhow::Result<String> {
         use lettre::message::header::ContentType;
-        use lettre::{Message, SmtpTransport, Transport};
         use lettre::transport::smtp::authentication::Credentials;
+        use lettre::{Message, SmtpTransport, Transport};
 
         // Parse subject and body from content
         // Format: "Subject: ...\n\nBody..."

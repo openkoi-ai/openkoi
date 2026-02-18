@@ -61,26 +61,20 @@ impl McpManager {
     pub async fn start_all(&mut self, configs: &[McpServerConfig]) -> Result<()> {
         for cfg in configs {
             match McpToolServer::spawn(cfg).await {
-                Ok(mut server) => {
-                    match server.initialize().await {
-                        Ok(tools) => {
-                            tracing::info!(
-                                "MCP server '{}': {} tools available",
-                                cfg.name,
-                                tools.len()
-                            );
-                            server.tools = tools;
-                            self.servers.insert(cfg.name.clone(), server);
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                "MCP server '{}' initialization failed: {}",
-                                cfg.name,
-                                e
-                            );
-                        }
+                Ok(mut server) => match server.initialize().await {
+                    Ok(tools) => {
+                        tracing::info!(
+                            "MCP server '{}': {} tools available",
+                            cfg.name,
+                            tools.len()
+                        );
+                        server.tools = tools;
+                        self.servers.insert(cfg.name.clone(), server);
                     }
-                }
+                    Err(e) => {
+                        tracing::warn!("MCP server '{}' initialization failed: {}", cfg.name, e);
+                    }
+                },
                 Err(e) => {
                     tracing::warn!("MCP server '{}' spawn failed: {}", cfg.name, e);
                 }
@@ -200,10 +194,7 @@ impl McpToolServer {
                                 .and_then(|d| d.as_str())
                                 .unwrap_or("")
                                 .to_string(),
-                            input_schema: v
-                                .get("inputSchema")
-                                .cloned()
-                                .unwrap_or(json!({})),
+                            input_schema: v.get("inputSchema").cloned().unwrap_or(json!({})),
                         })
                     })
                     .collect()
@@ -223,10 +214,7 @@ impl McpToolServer {
         });
         self.send_request(&request).await?;
         let response = self.read_response().await?;
-        Ok(response
-            .get("result")
-            .cloned()
-            .unwrap_or(json!(null)))
+        Ok(response.get("result").cloned().unwrap_or(json!(null)))
     }
 
     /// Graceful shutdown.
@@ -291,9 +279,7 @@ pub fn discover_mcp_json(project_root: &Path) -> Vec<McpServerConfig> {
                         .and_then(|e| e.as_object())
                         .map(|obj| {
                             obj.iter()
-                                .filter_map(|(k, v)| {
-                                    Some((k.clone(), v.as_str()?.to_string()))
-                                })
+                                .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
                                 .collect()
                         })
                         .unwrap_or_default();

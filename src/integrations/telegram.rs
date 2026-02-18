@@ -60,7 +60,8 @@ impl TelegramAdapter {
         });
         Ok(format!(
             "Authenticated as @{}",
-            bot.username.unwrap_or_else(|| bot.first_name.unwrap_or_default())
+            bot.username
+                .unwrap_or_else(|| bot.first_name.unwrap_or_default())
         ))
     }
 }

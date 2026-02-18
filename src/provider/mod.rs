@@ -24,20 +24,14 @@ pub trait ModelProvider: Send + Sync {
     fn name(&self) -> &str;
     fn models(&self) -> Vec<ModelInfo>;
 
-    async fn chat(
-        &self,
-        request: ChatRequest,
-    ) -> Result<ChatResponse, OpenKoiError>;
+    async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, OpenKoiError>;
 
     async fn chat_stream(
         &self,
         request: ChatRequest,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<ChatChunk, OpenKoiError>> + Send>>, OpenKoiError>;
 
-    async fn embed(
-        &self,
-        texts: &[&str],
-    ) -> Result<Vec<Vec<f32>>, OpenKoiError>;
+    async fn embed(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, OpenKoiError>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

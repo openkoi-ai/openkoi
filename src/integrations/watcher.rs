@@ -66,10 +66,7 @@ impl WatcherManager {
     }
 
     /// Start all configured watchers, returning a channel that receives events.
-    pub fn start(
-        &mut self,
-        registry: Arc<IntegrationRegistry>,
-    ) -> mpsc::Receiver<WatchEvent> {
+    pub fn start(&mut self, registry: Arc<IntegrationRegistry>) -> mpsc::Receiver<WatchEvent> {
         let (event_tx, event_rx) = mpsc::channel(100);
         let (shutdown_tx, _) = tokio::sync::broadcast::channel(1);
         self.shutdown_tx = Some(shutdown_tx.clone());

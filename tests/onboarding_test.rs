@@ -26,7 +26,10 @@ async fn test_discovery_from_env_anthropic() {
     if std::env::var("ANTHROPIC_API_KEY").is_ok() {
         let results = discovery::discover_providers().await;
         let has_anthropic = results.iter().any(|r| r.provider == "anthropic");
-        assert!(has_anthropic, "Should discover Anthropic when ANTHROPIC_API_KEY is set");
+        assert!(
+            has_anthropic,
+            "Should discover Anthropic when ANTHROPIC_API_KEY is set"
+        );
     }
 }
 
@@ -36,6 +39,9 @@ async fn test_discovery_from_env_openai() {
     if std::env::var("OPENAI_API_KEY").is_ok() {
         let results = discovery::discover_providers().await;
         let has_openai = results.iter().any(|r| r.provider == "openai");
-        assert!(has_openai, "Should discover OpenAI when OPENAI_API_KEY is set");
+        assert!(
+            has_openai,
+            "Should discover OpenAI when OPENAI_API_KEY is set"
+        );
     }
 }

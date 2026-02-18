@@ -10,9 +10,7 @@ pub async fn show_status(verbose: bool, costs: bool) -> anyhow::Result<()> {
     let db_path = paths::db_path();
     let db_exists = db_path.exists();
     let db_size = if db_exists {
-        std::fs::metadata(&db_path)
-            .map(|m| m.len())
-            .unwrap_or(0)
+        std::fs::metadata(&db_path).map(|m| m.len()).unwrap_or(0)
     } else {
         0
     };
@@ -65,19 +63,16 @@ pub async fn show_status(verbose: bool, costs: bool) -> anyhow::Result<()> {
         if let Ok(stats) = query_db_stats(&db_path) {
             println!();
             println!("  Activity:");
-            println!("    Tasks:      {} total ({} completed)", stats.total_tasks, stats.completed_tasks);
+            println!(
+                "    Tasks:      {} total ({} completed)",
+                stats.total_tasks, stats.completed_tasks
+            );
             println!("    Learnings:  {}", stats.learnings_count);
             println!("    Sessions:   {}", stats.sessions_count);
 
             if stats.completed_tasks > 0 {
-                println!(
-                    "    Avg score:  {:.1}",
-                    stats.avg_score
-                );
-                println!(
-                    "    Avg iters:  {:.1}",
-                    stats.avg_iterations
-                );
+                println!("    Avg score:  {:.1}", stats.avg_score);
+                println!("    Avg iters:  {:.1}", stats.avg_iterations);
             }
         }
     }

@@ -236,7 +236,11 @@ async fn install_skill(name: &str) -> anyhow::Result<()> {
     // Check if it's already installed
     let user_path = paths::user_skills_dir().join(name);
     if user_path.exists() {
-        println!("Skill '{}' is already installed at {}", name, user_path.display());
+        println!(
+            "Skill '{}' is already installed at {}",
+            name,
+            user_path.display()
+        );
         return Ok(());
     }
 
@@ -275,10 +279,8 @@ async fn evolve_soul() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let provider: Arc<dyn crate::provider::ModelProvider> = providers
-        .into_iter()
-        .next()
-        .expect("at least one provider");
+    let provider: Arc<dyn crate::provider::ModelProvider> =
+        providers.into_iter().next().expect("at least one provider");
 
     let evolution = SoulEvolution::new(provider);
 
@@ -298,7 +300,10 @@ async fn evolve_soul() -> anyhow::Result<()> {
 
             // Interactive approval
             println!("Apply this soul evolution?");
-            println!("  [y]es — write to {}  [n]o — discard", paths::soul_path().display());
+            println!(
+                "  [y]es — write to {}  [n]o — discard",
+                paths::soul_path().display()
+            );
             print!("  > ");
             io::stdout().flush()?;
 
@@ -327,7 +332,9 @@ async fn evolve_soul() -> anyhow::Result<()> {
         }
         None => {
             eprintln!("Not enough learnings to propose soul evolution yet.");
-            eprintln!("Keep using openkoi — evolution happens after ~10+ high-confidence learnings.");
+            eprintln!(
+                "Keep using openkoi — evolution happens after ~10+ high-confidence learnings."
+            );
         }
     }
 

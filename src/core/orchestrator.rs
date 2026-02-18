@@ -50,11 +50,7 @@ impl Orchestrator {
     ) -> Self {
         Self {
             executor: Executor::new(provider.clone(), model_id.clone()),
-            evaluator: EvaluatorFramework::new(
-                skill_registry,
-                provider,
-                model_id,
-            ),
+            evaluator: EvaluatorFramework::new(skill_registry, provider, model_id),
             token_optimizer: TokenOptimizer::new(),
             eval_cache: EvalCache::new(),
             safety,
@@ -122,7 +118,11 @@ impl Orchestrator {
                 Some(ref mut m) => Some(&mut **m),
                 None => None,
             };
-            match self.executor.execute(&context, &ctx.tools, mcp_ref, integrations).await {
+            match self
+                .executor
+                .execute(&context, &ctx.tools, mcp_ref, integrations)
+                .await
+            {
                 Ok(output) => {
                     budget.deduct(&output.usage);
                     self.cost_tracker.record("default", &output.usage);
@@ -137,7 +137,9 @@ impl Orchestrator {
             }
 
             // Check if evaluation should be skipped
-            let should_eval = !self.eval_cache.should_skip_eval(&cycle, &cycles, &self.config);
+            let should_eval = !self
+                .eval_cache
+                .should_skip_eval(&cycle, &cycles, &self.config);
 
             if should_eval {
                 // Run evaluation via EvaluatorFramework (tests + lint + LLM judge)

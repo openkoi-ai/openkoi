@@ -172,8 +172,16 @@ async fn try_dispatch_integration(
 
     let result = match *suffix {
         "_send" => {
-            let target = tc.arguments.get("target").and_then(|v| v.as_str()).unwrap_or("");
-            let message = tc.arguments.get("message").and_then(|v| v.as_str()).unwrap_or("");
+            let target = tc
+                .arguments
+                .get("target")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let message = tc
+                .arguments
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if let Some(msg_adapter) = integration.messaging() {
                 match msg_adapter.send(target, message).await {
                     Ok(id) => format!("Message sent successfully (id: {id})"),
@@ -184,8 +192,16 @@ async fn try_dispatch_integration(
             }
         }
         "_read" => {
-            let channel = tc.arguments.get("channel").and_then(|v| v.as_str()).unwrap_or("");
-            let limit = tc.arguments.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as u32;
+            let channel = tc
+                .arguments
+                .get("channel")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let limit = tc
+                .arguments
+                .get("limit")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(20) as u32;
             if let Some(msg_adapter) = integration.messaging() {
                 match msg_adapter.history(channel, limit).await {
                     Ok(messages) => {
@@ -206,7 +222,11 @@ async fn try_dispatch_integration(
             }
         }
         "_read_doc" => {
-            let doc_id = tc.arguments.get("doc_id").and_then(|v| v.as_str()).unwrap_or("");
+            let doc_id = tc
+                .arguments
+                .get("doc_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if let Some(doc_adapter) = integration.document() {
                 match doc_adapter.read(doc_id).await {
                     Ok(doc) => {
@@ -219,8 +239,16 @@ async fn try_dispatch_integration(
             }
         }
         "_write_doc" => {
-            let doc_id = tc.arguments.get("doc_id").and_then(|v| v.as_str()).unwrap_or("");
-            let content = tc.arguments.get("content").and_then(|v| v.as_str()).unwrap_or("");
+            let doc_id = tc
+                .arguments
+                .get("doc_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let content = tc
+                .arguments
+                .get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if let Some(doc_adapter) = integration.document() {
                 match doc_adapter.write(doc_id, content).await {
                     Ok(()) => "Document updated successfully.".to_string(),
@@ -231,7 +259,11 @@ async fn try_dispatch_integration(
             }
         }
         "_search" => {
-            let query = tc.arguments.get("query").and_then(|v| v.as_str()).unwrap_or("");
+            let query = tc
+                .arguments
+                .get("query")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             // Try messaging search first, then document search
             if let Some(msg_adapter) = integration.messaging() {
                 match msg_adapter.search(query).await {
@@ -258,7 +290,10 @@ async fn try_dispatch_integration(
                                     "- {} (id: {}{})",
                                     r.title,
                                     r.id,
-                                    r.url.as_ref().map(|u| format!(", url: {u}")).unwrap_or_default()
+                                    r.url
+                                        .as_ref()
+                                        .map(|u| format!(", url: {u}"))
+                                        .unwrap_or_default()
                                 )
                             })
                             .collect();
@@ -296,8 +331,16 @@ async fn try_dispatch_integration(
             }
         }
         "_create_doc" => {
-            let title = tc.arguments.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled");
-            let content = tc.arguments.get("content").and_then(|v| v.as_str()).unwrap_or("");
+            let title = tc
+                .arguments
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Untitled");
+            let content = tc
+                .arguments
+                .get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if let Some(doc_adapter) = integration.document() {
                 match doc_adapter.create(title, content).await {
                     Ok(id) => format!("Document created successfully (id: {id})"),

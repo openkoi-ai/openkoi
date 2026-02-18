@@ -63,9 +63,8 @@ fn show_migration_status(conn: &rusqlite::Connection) -> anyhow::Result<()> {
     println!();
 
     // List applied migrations
-    let mut stmt = conn.prepare(
-        "SELECT version, name, applied_at FROM _migrations ORDER BY version",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT version, name, applied_at FROM _migrations ORDER BY version")?;
 
     let rows = stmt.query_map([], |row| {
         Ok((
@@ -100,16 +99,9 @@ fn run_rollback(conn: &rusqlite::Connection) -> anyhow::Result<()> {
     // We don't store down SQL in the database, so we need to reference the
     // compiled-in migrations. For safety, we only support rolling back if
     // the user has explicitly opted in.
-    println!(
-        "Rolling back migration v{}...",
-        current_version
-    );
-    println!(
-        "WARNING: Rollback requires manually executing the down migration SQL."
-    );
-    println!(
-        "This feature is intended for development use. Data loss may occur."
-    );
+    println!("Rolling back migration v{}...", current_version);
+    println!("WARNING: Rollback requires manually executing the down migration SQL.");
+    println!("This feature is intended for development use. Data loss may occur.");
 
     // For now, just remove the migration record. The actual down SQL would
     // need to be applied separately in a full implementation.

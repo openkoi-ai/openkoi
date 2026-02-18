@@ -1,8 +1,8 @@
 // src/onboarding/credentials.rs — Credential storage with filesystem permissions
 
 use anyhow::Result;
-use std::os::unix::fs::PermissionsExt;
 use std::fs::Permissions;
+use std::os::unix::fs::PermissionsExt;
 
 use crate::infra::paths;
 
