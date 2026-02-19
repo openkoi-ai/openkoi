@@ -1,5 +1,6 @@
 # Release pipeline for OpenKoi
-# Triggered by pushing a tag matching vYYYY.M.D (CalVer)
+# Triggered by pushing a tag matching vYYYY.M.D (CalVer, e.g. v2025.2.19)
+# Tag version must match the version in Cargo.toml (without the 'v' prefix)
 # Cross-compiles for 4 targets (Linux/macOS), creates GitHub Release with artifacts
 
 name: Release
