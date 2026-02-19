@@ -64,13 +64,19 @@ jobs:
         run: cargo install cross --git https://github.com/cross-rs/cross
 
       # Build
+      # sqlite-vec 0.1.6 uses BSD-only u_int*_t types that don't exist in musl.
+      # Defining __COSMOPOLITAN__ skips the problematic typedef block in sqlite-vec.c.
       - name: Build (native)
         if: matrix.target != 'aarch64-unknown-linux-musl'
         run: cargo build --release --target ${{ matrix.target }}
+        env:
+          CFLAGS_x86_64_unknown_linux_musl: -D__COSMOPOLITAN__
 
       - name: Build (cross, ARM64)
         if: matrix.target == 'aarch64-unknown-linux-musl'
         run: cross build --release --target ${{ matrix.target }}
+        env:
+          CFLAGS_aarch64_unknown_linux_musl: -D__COSMOPOLITAN__
 
       # Package
       - name: Package (Unix)
@@ -78,7 +84,11 @@ jobs:
           cd target/${{ matrix.target }}/release
           tar czf ../../../${{ matrix.archive }} ${{ matrix.binary }}
           cd ../../..
-          sha256sum ${{ matrix.archive }} > ${{ matrix.archive }}.sha256
+          if command -v sha256sum &>/dev/null; then
+            sha256sum ${{ matrix.archive }} > ${{ matrix.archive }}.sha256
+          else
+            shasum -a 256 ${{ matrix.archive }} > ${{ matrix.archive }}.sha256
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

@@ -1,0 +1,7 @@
+# Cross.toml — Configuration for cross-rs (ARM64 Linux builds)
+# https://github.com/cross-rs/cross
+
+[build.env]
+passthrough = [
+    "CFLAGS_aarch64_unknown_linux_musl",
+]
