@@ -70,9 +70,8 @@ wasmtime = "41"
 rhai = "1.24"
 
 # Email (IMAP/SMTP)
-imap = "3.0.0-alpha.15"
-native-tls = "0.2"
-lettre = { version = "0.11", features = ["tokio1-native-tls", "smtp-transport", "builder"] }
+imap = { version = "3.0.0-alpha.15", default-features = false, features = ["rustls-tls"] }
+lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "smtp-transport", "builder"] }
 mailparse = "0.15"
 
 # Office file formats (ZIP-based docx/xlsx)
