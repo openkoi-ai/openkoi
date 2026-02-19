@@ -68,7 +68,7 @@ glob = "0.3"
 url = "2"
 
 # WASM plugins
-wasmtime = "41"
+wasmtime = { version = "41", default-features = false, features = ["cranelift", "runtime", "std"] }
 
 # Scripting
 rhai = "1.24"
