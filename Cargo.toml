@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "Self-iterating AI agent system"
 license = "MIT"
+repository = "https://github.com/openkoi-ai/openkoi"
+homepage = "https://openkoi.ai"
+keywords = ["ai", "agent", "llm", "automation", "self-iterating"]
+categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
 name = "openkoi"
