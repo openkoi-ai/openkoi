@@ -52,6 +52,9 @@ async fn run() -> anyhow::Result<()> {
         Some(Commands::Connect { app }) => {
             return openkoi::cli::connect::run_connect(app).await;
         }
+        Some(Commands::Disconnect { app }) => {
+            return openkoi::cli::connect::run_disconnect(app).await;
+        }
         Some(Commands::Daemon { action }) => {
             return run_daemon_command(action.clone(), &config).await;
         }

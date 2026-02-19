@@ -20,6 +20,7 @@ pub enum CredentialSource {
     QwenCli,
     OllamaProbe,
     ConfigFile,
+    OAuthStore,
 }
 
 impl std::fmt::Display for CredentialSource {
@@ -32,6 +33,7 @@ impl std::fmt::Display for CredentialSource {
             Self::QwenCli => write!(f, "qwen-cli"),
             Self::OllamaProbe => write!(f, "ollama-local"),
             Self::ConfigFile => write!(f, "config-file"),
+            Self::OAuthStore => write!(f, "oauth"),
         }
     }
 }
@@ -65,7 +67,12 @@ pub async fn discover_providers() -> Vec<DiscoveredProvider> {
         }
     }
 
-    // 2. External CLI credentials (auto-import from other AI tools)
+    // 2. OAuth store (auth.json — subscription-based providers)
+    if let Some(oauth_providers) = discover_oauth_providers().await {
+        found.extend(oauth_providers);
+    }
+
+    // 3. External CLI credentials (auto-import from other AI tools)
     if let Some(cred) = import_claude_cli_credentials().await {
         found.push(cred);
     }
@@ -73,18 +80,18 @@ pub async fn discover_providers() -> Vec<DiscoveredProvider> {
         found.push(cred);
     }
 
-    // 3. macOS Keychain (Claude Code)
+    // 4. macOS Keychain (Claude Code)
     #[cfg(target_os = "macos")]
     if let Some(cred) = import_claude_keychain().await {
         found.push(cred);
     }
 
-    // 4. Existing OpenKoi credentials
+    // 5. Existing OpenKoi credentials
     if let Some(creds) = load_saved_credentials().await {
         found.extend(creds);
     }
 
-    // 5. Ollama probe (local, free)
+    // 6. Ollama probe (local, free)
     if let Ok(models) = probe_ollama().await {
         if !models.is_empty() {
             let best = pick_best_ollama_model(&models);
@@ -97,6 +104,40 @@ pub async fn discover_providers() -> Vec<DiscoveredProvider> {
     }
 
     found
+}
+
+/// Discover providers from the OAuth auth store (~/.openkoi/auth.json).
+async fn discover_oauth_providers() -> Option<Vec<DiscoveredProvider>> {
+    use crate::auth::AuthStore;
+
+    let store = AuthStore::load().ok()?;
+    let mut found = Vec::new();
+
+    for (provider_id, _info) in &store.providers {
+        let model = default_model_for_oauth(provider_id);
+        if !model.is_empty() {
+            found.push(DiscoveredProvider {
+                provider: provider_id.clone(),
+                model,
+                source: CredentialSource::OAuthStore,
+            });
+        }
+    }
+
+    if found.is_empty() {
+        None
+    } else {
+        Some(found)
+    }
+}
+
+/// Default model for OAuth-based providers.
+pub fn default_model_for_oauth(provider_id: &str) -> String {
+    match provider_id {
+        "copilot" => "claude-sonnet-4.6".into(),
+        "chatgpt" => "gpt-5.1-codex".into(),
+        _ => String::new(), // Unknown OAuth provider — skip
+    }
 }
 
 /// Import credentials from Claude Code CLI (~/.claude/.credentials.json)

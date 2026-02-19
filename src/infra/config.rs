@@ -28,9 +28,50 @@ pub struct Config {
     #[serde(default)]
     pub integrations: IntegrationsConfig,
 
+    /// Custom OpenAI-compatible providers defined in config.
+    /// Example:
+    /// ```toml
+    /// [providers.my-llm]
+    /// base_url = "https://my-llm.example.com/v1"
+    /// api_key_env = "MY_LLM_API_KEY"
+    /// default_model = "my-model"
+    /// models = ["my-model", "my-model-large"]
+    /// display_name = "My LLM"
+    /// ```
+    #[serde(default)]
+    pub providers: std::collections::HashMap<String, CustomProviderConfig>,
+
     /// Daemon-specific settings (optional section in config.toml).
     #[serde(default)]
     pub daemon: Option<DaemonTomlConfig>,
+}
+
+/// Configuration for a custom OpenAI-compatible provider.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomProviderConfig {
+    /// Base URL for the OpenAI-compatible API (e.g. "https://api.example.com/v1").
+    pub base_url: String,
+
+    /// Environment variable name that holds the API key (e.g. "MY_LLM_API_KEY").
+    /// The key can also be stored in ~/.openkoi/credentials/{provider_id}.key.
+    #[serde(default)]
+    pub api_key_env: Option<String>,
+
+    /// Default model to use when no model is specified.
+    #[serde(default = "default_custom_model")]
+    pub default_model: String,
+
+    /// List of available models (informational).
+    #[serde(default)]
+    pub models: Vec<String>,
+
+    /// Human-readable display name (e.g. "My Custom LLM"). Defaults to the provider ID.
+    #[serde(default)]
+    pub display_name: Option<String>,
+}
+
+fn default_custom_model() -> String {
+    "auto".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

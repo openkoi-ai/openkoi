@@ -76,6 +76,11 @@ pub enum Commands {
         /// App to connect (e.g. slack, notion)
         app: String,
     },
+    /// Disconnect / logout from a provider or integration
+    Disconnect {
+        /// Provider or integration to disconnect (e.g. copilot, chatgpt)
+        app: String,
+    },
     /// Background daemon for automated integration watching
     Daemon {
         #[command(subcommand)]

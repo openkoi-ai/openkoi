@@ -3,8 +3,23 @@
 use crate::integrations::credentials::{self, IntegrationCredentials};
 
 /// Handle the `openkoi connect <app>` command.
+///
+/// Supports both AI provider logins and integration connections:
+///   openkoi connect copilot         — GitHub Copilot (device code)
+///   openkoi connect chatgpt         — ChatGPT Plus/Pro (device code)
+///   openkoi connect slack           — Slack workspace
+///   ...etc
 pub async fn run_connect(app: &str) -> anyhow::Result<()> {
     match app {
+        // ── AI provider OAuth logins ──
+        "copilot" | "github-copilot" | "github_copilot" => {
+            connect_provider_oauth("copilot", "GitHub Copilot").await
+        }
+        "chatgpt" | "openai-codex" | "openai_codex" => {
+            connect_provider_oauth("chatgpt", "ChatGPT Plus/Pro").await
+        }
+
+        // ── Integration connections (existing) ──
         "slack" => connect_integration("slack", "Slack", "SLACK_BOT_TOKEN", "xoxb-...").await,
         "notion" => connect_integration("notion", "Notion", "NOTION_API_KEY", "secret_...").await,
         "discord" => {
@@ -26,9 +41,13 @@ pub async fn run_connect(app: &str) -> anyhow::Result<()> {
         "msoffice" | "office" => connect_msoffice().await,
         "status" | "list" => show_connection_status().await,
         _ => {
-            eprintln!("Unknown integration: {app}");
+            eprintln!("Unknown target: {app}");
             eprintln!();
-            eprintln!("Available integrations:");
+            eprintln!("AI Providers (subscription login, free):");
+            eprintln!("  copilot         GitHub Copilot (device code)");
+            eprintln!("  chatgpt         ChatGPT Plus/Pro (device code)");
+            eprintln!();
+            eprintln!("Integrations:");
             eprintln!("  slack          Slack workspace (Web API)");
             eprintln!("  discord        Discord server (Bot API)");
             eprintln!("  telegram       Telegram bot (Bot API)");
@@ -39,10 +58,146 @@ pub async fn run_connect(app: &str) -> anyhow::Result<()> {
             eprintln!("  email          Email (IMAP/SMTP)");
             eprintln!("  msoffice       MS Office local files (docx/xlsx)");
             eprintln!();
-            eprintln!("  status         Show connection status for all integrations");
-            Err(anyhow::anyhow!("Unknown integration: {app}"))
+            eprintln!("  status         Show connection status for all");
+            Err(anyhow::anyhow!("Unknown target: {app}"))
         }
     }
+}
+
+/// Handle the `openkoi disconnect <app>` command.
+///
+/// Removes stored credentials for an AI provider or integration.
+/// For OAuth providers, removes the token from `~/.openkoi/auth.json`.
+/// For API key providers, removes the key file from `~/.openkoi/credentials/`.
+pub async fn run_disconnect(app: &str) -> anyhow::Result<()> {
+    match app {
+        // ── AI provider OAuth logouts ──
+        "copilot" | "github-copilot" | "github_copilot" => {
+            disconnect_provider("copilot", "GitHub Copilot")
+        }
+        "chatgpt" | "openai-codex" | "openai_codex" => {
+            disconnect_provider("chatgpt", "ChatGPT Plus/Pro")
+        }
+        // ── API key providers ──
+        "anthropic" | "openai" | "openrouter" | "groq" | "together" | "deepseek" => {
+            disconnect_api_key(app)
+        }
+        // ── All ──
+        "all" => {
+            eprintln!("Disconnecting all providers...");
+            let mut store = crate::auth::AuthStore::load().unwrap_or_default();
+            let providers = ["copilot", "chatgpt"];
+            for id in &providers {
+                if store.get(id).is_some() {
+                    store.remove_and_save(id)?;
+                    eprintln!("  Removed {id}");
+                }
+            }
+            eprintln!("Done. All OAuth tokens removed from ~/.openkoi/auth.json");
+            Ok(())
+        }
+        _ => {
+            eprintln!("Unknown target: {app}");
+            eprintln!();
+            eprintln!("Disconnect targets:");
+            eprintln!("  copilot          GitHub Copilot");
+            eprintln!("  chatgpt          ChatGPT Plus/Pro");
+            eprintln!("  anthropic        Anthropic API key");
+            eprintln!("  openai           OpenAI API key");
+            eprintln!("  openrouter       OpenRouter API key");
+            eprintln!("  all              All OAuth providers");
+            Err(anyhow::anyhow!("Unknown target: {app}"))
+        }
+    }
+}
+
+/// Remove an OAuth provider's stored tokens.
+fn disconnect_provider(provider_id: &str, display_name: &str) -> anyhow::Result<()> {
+    let mut store = crate::auth::AuthStore::load().unwrap_or_default();
+    if store.get(provider_id).is_some() {
+        store.remove_and_save(provider_id)?;
+        eprintln!("  {display_name} disconnected.");
+        eprintln!("  Token removed from ~/.openkoi/auth.json");
+    } else {
+        eprintln!("  {display_name} is not connected.");
+    }
+    Ok(())
+}
+
+/// Remove an API key file from the credentials directory.
+fn disconnect_api_key(provider_id: &str) -> anyhow::Result<()> {
+    let key_path = crate::infra::paths::credentials_dir().join(format!("{provider_id}.key"));
+    if key_path.exists() {
+        std::fs::remove_file(&key_path)?;
+        eprintln!("  {provider_id} API key removed.");
+        eprintln!("  Deleted {}", key_path.display());
+    } else {
+        // Also check AuthStore for legacy storage
+        let mut store = crate::auth::AuthStore::load().unwrap_or_default();
+        if store.get(provider_id).is_some() {
+            store.remove_and_save(provider_id)?;
+            eprintln!("  {provider_id} credentials removed from auth store.");
+        } else {
+            eprintln!("  No credentials found for {provider_id}.");
+        }
+    }
+    Ok(())
+}
+
+/// Run an OAuth login flow for an AI provider from `openkoi connect <name>`.
+async fn connect_provider_oauth(provider_id: &str, display_name: &str) -> anyhow::Result<()> {
+    use crate::auth::{AuthInfo, AuthStore};
+    use crate::onboarding::discovery::default_model_for_oauth;
+
+    // Load once and reuse — avoids TOCTOU race if another process saves between
+    // the "already connected?" check and the final save.
+    let mut store = AuthStore::load().unwrap_or_default();
+
+    // Check if already logged in
+    if let Some(info) = store.get(provider_id) {
+        if !info.is_expired() {
+            eprintln!("  {display_name} is already connected.");
+            let model = default_model_for_oauth(provider_id);
+            eprintln!("  Default model: {model}");
+            eprintln!();
+
+            let confirm = inquire::Confirm::new("Re-authenticate?")
+                .with_default(false)
+                .prompt_skippable();
+
+            match confirm {
+                Ok(Some(true)) => { /* fall through to re-auth */ }
+                _ => return Ok(()),
+            }
+        }
+    }
+
+    eprintln!("Connecting {display_name}...");
+    eprintln!();
+
+    let auth_info: AuthInfo = match provider_id {
+        "copilot" => {
+            eprintln!("  Starting GitHub device-code flow...");
+            eprintln!();
+            crate::provider::github_copilot::github_device_code_flow().await?
+        }
+        "chatgpt" => {
+            eprintln!("  Starting OpenAI device-code flow...");
+            eprintln!();
+            crate::provider::openai_oauth::openai_codex_device_flow().await?
+        }
+        _ => anyhow::bail!("Unknown OAuth provider: {provider_id}"),
+    };
+
+    // Persist to auth store (reuses the store loaded above)
+    store.set_and_save(provider_id, auth_info)?;
+
+    let model = default_model_for_oauth(provider_id);
+    eprintln!();
+    eprintln!("  Connected. Using: {provider_id} / {model}");
+    eprintln!("  Credentials saved to ~/.openkoi/auth.json");
+
+    Ok(())
 }
 
 /// Generic flow for token-based integrations.
@@ -212,8 +367,48 @@ async fn connect_google_docs() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Show connection status for all integrations.
+/// Show connection status for all integrations and providers.
 async fn show_connection_status() -> anyhow::Result<()> {
+    // ── AI Providers ──
+    println!("AI Provider Status");
+    println!("==================");
+    println!();
+
+    {
+        use crate::auth::AuthStore;
+        let store = AuthStore::load().unwrap_or_default();
+
+        let oauth_providers = [
+            ("copilot", "GitHub Copilot"),
+            ("chatgpt", "ChatGPT Plus/Pro"),
+        ];
+
+        for (id, name) in &oauth_providers {
+            match store.get(id) {
+                Some(info) if !info.is_expired() => {
+                    println!("  [+] {name}: connected (subscription login)");
+                }
+                Some(_) => {
+                    println!("  [!] {name}: token expired — run `openkoi connect {id}`");
+                }
+                None => {
+                    println!("  [-] {name}: not connected");
+                }
+            }
+        }
+
+        // Show API key providers from legacy credentials
+        let api_providers = ["anthropic", "openai", "openrouter", "groq", "together", "deepseek"];
+        for id in &api_providers {
+            if store.get(id).is_some() {
+                println!("  [+] {id}: API key saved");
+            }
+        }
+    }
+
+    println!();
+
+    // ── Integrations ──
     let creds = IntegrationCredentials::load().unwrap_or_default();
 
     println!("Integration Status");
@@ -230,22 +425,33 @@ async fn show_connection_status() -> anyhow::Result<()> {
         ("email", "Email"),
     ];
 
+    // Validate configured integrations in parallel to avoid slow serial HTTP round-trips.
+    let mut validation_futures = Vec::new();
+    let mut integration_info: Vec<(&str, &str, bool)> = Vec::new();
+
     for (id, name) in &integrations {
         let has_creds = creds.has_credentials(id);
-        let status = if has_creds {
-            "configured"
-        } else {
-            "not configured"
-        };
-        let marker = if has_creds { "+" } else { "-" };
+        integration_info.push((id, name, has_creds));
+        if has_creds {
+            validation_futures.push(validate_integration(id, &creds));
+        }
+    }
 
+    let validation_results = futures::future::join_all(validation_futures).await;
+
+    // Display results, matching them back to the integrations that had credentials.
+    let mut result_idx = 0;
+    for (_, name, has_creds) in &integration_info {
+        let status = if *has_creds { "configured" } else { "not configured" };
+        let marker = if *has_creds { "+" } else { "-" };
         println!("  [{marker}] {name}: {status}");
 
-        if has_creds {
-            match validate_integration(id, &creds).await {
+        if *has_creds {
+            match &validation_results[result_idx] {
                 Ok(msg) => println!("      Validated: {msg}"),
                 Err(e) => println!("      Validation failed: {e}"),
             }
+            result_idx += 1;
         }
     }
 

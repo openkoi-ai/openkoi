@@ -4,17 +4,28 @@ use std::sync::Arc;
 
 use super::anthropic::AnthropicProvider;
 use super::bedrock::BedrockProvider;
+use super::github_copilot::GithubCopilotProvider;
 use super::google::GoogleProvider;
 use super::ollama::OllamaProvider;
 use super::openai::OpenAIProvider;
 use super::openai_compat::OpenAICompatProvider;
+use super::openai_oauth::OpenAICodexProvider;
 use super::{ModelProvider, ModelRef};
+use crate::auth::AuthStore;
+use crate::infra::config::Config;
 use crate::infra::paths;
 use crate::onboarding::discovery;
 
-/// Discover all available providers from env vars, saved credentials, external CLIs,
-/// and local services.
+/// Discover all available providers from env vars, saved credentials, OAuth store,
+/// config-driven custom providers, external CLIs, and local services.
 pub async fn discover_providers() -> Vec<Arc<dyn ModelProvider>> {
+    // Load config for custom providers
+    let config = Config::load().unwrap_or_default();
+    discover_providers_with_config(&config).await
+}
+
+/// Discover providers with an explicit config reference.
+pub async fn discover_providers_with_config(config: &Config) -> Vec<Arc<dyn ModelProvider>> {
     let mut providers: Vec<Arc<dyn ModelProvider>> = Vec::new();
     let mut seen_providers: Vec<String> = Vec::new();
 
@@ -26,6 +37,52 @@ pub async fn discover_providers() -> Vec<Arc<dyn ModelProvider>> {
         // Fall back to saved credential file (~/.openkoi/credentials/{provider}.key)
         load_saved_key(provider_id).await
     }
+
+    // ─── OAuth providers from auth.json (subscription-based, free) ───────────
+
+    let mut auth_store = AuthStore::load().unwrap_or_default();
+
+    // GitHub Copilot (token never expires)
+    if let Some(info) = auth_store.get("copilot").cloned() {
+        providers.push(Arc::new(GithubCopilotProvider::new(
+            info.token().to_string(),
+        )));
+        seen_providers.push("copilot".into());
+    }
+
+    // OpenAI Codex / ChatGPT (may need token refresh)
+    if let Some(info) = auth_store.get("chatgpt").cloned() {
+        let result = if info.is_expired() {
+            if let Some(rt) = info.refresh_token() {
+                match super::openai_oauth::openai_codex_refresh_token(rt).await {
+                    Ok(new_info) => {
+                        let t = new_info.token().to_string();
+                        let aid = new_info.extra("account_id").unwrap_or("").to_string();
+                        let _ = auth_store.set_and_save("chatgpt", new_info);
+                        Some((t, aid))
+                    }
+                    Err(e) => {
+                        tracing::warn!("OpenAI Codex token refresh failed: {e}. Skipping provider. Re-authenticate with: openkoi connect chatgpt");
+                        None
+                    }
+                }
+            } else {
+                tracing::warn!("OpenAI Codex token expired and no refresh token available. Re-authenticate with: openkoi connect chatgpt");
+                None
+            }
+        } else {
+            Some((
+                info.token().to_string(),
+                info.extra("account_id").unwrap_or("").to_string(),
+            ))
+        };
+        if let Some((token, account_id)) = result {
+            providers.push(Arc::new(OpenAICodexProvider::new(token, account_id)));
+            seen_providers.push("chatgpt".into());
+        }
+    }
+
+    // ─── API key providers (env var > saved file > external CLIs) ────────────
 
     // --- Anthropic: env var > saved file > Claude CLI > macOS Keychain ---
     let anthropic_key = resolve_key("ANTHROPIC_API_KEY", "anthropic").await;
@@ -145,17 +202,58 @@ pub async fn discover_providers() -> Vec<Arc<dyn ModelProvider>> {
         }
     }
 
-    // Custom OpenAI-compatible provider (from saved credentials only)
-    if let Some(key) = load_saved_key("custom").await {
-        if let Some(url) = load_saved_custom_url().await {
-            providers.push(Arc::new(OpenAICompatProvider::new(
-                "custom",
-                "Custom",
-                key,
-                url,
-                "auto".into(),
-            )));
-            seen_providers.push("custom".into());
+    // ─── Config-driven custom providers ─────────────────────────────────────
+
+    for (id, cfg) in &config.providers {
+        if seen_providers.contains(id) {
+            continue; // Don't override built-in providers
+        }
+        // Resolve API key: env var > saved credential file
+        let key = if let Some(env_var) = &cfg.api_key_env {
+            std::env::var(env_var).ok()
+        } else {
+            None
+        };
+        let key = match key {
+            Some(k) => k,
+            None => match load_saved_key(id).await {
+                Some(k) => k,
+                None => {
+                    // Some providers may not need a key (e.g., local endpoints)
+                    String::new()
+                }
+            },
+        };
+
+        let display_name = cfg
+            .display_name
+            .clone()
+            .unwrap_or_else(|| id.clone());
+
+        providers.push(Arc::new(OpenAICompatProvider::new(
+            id.clone(),
+            display_name,
+            key,
+            cfg.base_url.clone(),
+            cfg.default_model.clone(),
+        )));
+        seen_providers.push(id.clone());
+    }
+
+    // ─── Legacy custom provider (from saved credentials only) ───────────────
+
+    if !seen_providers.contains(&"custom".to_string()) {
+        if let Some(key) = load_saved_key("custom").await {
+            if let Some(url) = load_saved_custom_url().await {
+                providers.push(Arc::new(OpenAICompatProvider::new(
+                    "custom",
+                    "Custom",
+                    key,
+                    url,
+                    "auto".into(),
+                )));
+                seen_providers.push("custom".into());
+            }
         }
     }
 
@@ -191,6 +289,8 @@ async fn load_saved_custom_url() -> Option<String> {
 /// Pick the best default model from available providers.
 pub fn pick_default_model(providers: &[Arc<dyn ModelProvider>]) -> Option<ModelRef> {
     let priority = [
+        ("copilot", "claude-sonnet-4.6"),
+        ("chatgpt", "gpt-5.1-codex"),
         ("anthropic", "claude-sonnet-4-20250514"),
         ("openai", "gpt-4.1"),
         ("google", "gemini-2.5-pro"),

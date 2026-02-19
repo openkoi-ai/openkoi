@@ -22,7 +22,13 @@ pub async fn ensure_ready() -> Result<DiscoveredProvider> {
         // Database will be auto-created on first MemoryManager::open()
     }
 
-    // 3. Discover providers
+    // 3. Migrate legacy credentials to auth.json (one-time, silent)
+    {
+        let mut auth_store = crate::auth::AuthStore::load().unwrap_or_default();
+        let _ = auth_store.migrate_legacy().await;
+    }
+
+    // 4. Discover providers
     let providers = discover_providers().await;
 
     if let Some(best) = pick_best_provider(&providers) {
@@ -32,9 +38,11 @@ pub async fn ensure_ready() -> Result<DiscoveredProvider> {
                 CredentialSource::EnvVar(var) => format!("from {var}"),
                 CredentialSource::ClaudeCliCredentials => "from Claude CLI".into(),
                 CredentialSource::ClaudeCliKeychain => "from macOS Keychain".into(),
+                CredentialSource::OpenAICodexCli => "from OpenAI Codex CLI".into(),
+                CredentialSource::QwenCli => "from Qwen CLI".into(),
                 CredentialSource::OllamaProbe => "local".into(),
                 CredentialSource::ConfigFile => "saved".into(),
-                _ => String::new(),
+                CredentialSource::OAuthStore => "subscription login".into(),
             };
             eprintln!(
                 "  Found: {} ({source_hint})\n  Using: {}\n",
@@ -45,15 +53,17 @@ pub async fn ensure_ready() -> Result<DiscoveredProvider> {
         return Ok(best.clone());
     }
 
-    // 4. Nothing found — interactive picker (max 2 prompts)
+    // 5. Nothing found — interactive picker (max 2 prompts)
     let provider = pick_provider().await?;
     mark_onboarded().await.ok();
     Ok(provider)
 }
 
 fn pick_best_provider(providers: &[DiscoveredProvider]) -> Option<&DiscoveredProvider> {
-    // Priority: cloud providers first (better quality), Ollama as fallback
+    // Priority: subscription (free) first, then cloud API keys, Ollama last
     let priority = [
+        "copilot",
+        "chatgpt",
         "anthropic",
         "openai",
         "google",

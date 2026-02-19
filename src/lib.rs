@@ -1,5 +1,6 @@
 // src/lib.rs — Library root for OpenKoi
 
+pub mod auth;
 pub mod cli;
 pub mod core;
 pub mod evaluator;

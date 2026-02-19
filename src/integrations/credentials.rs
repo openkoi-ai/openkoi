@@ -7,6 +7,12 @@ use std::path::PathBuf;
 use crate::infra::paths;
 
 /// Credentials file stored at ~/.openkoi/credentials/integrations.json
+///
+/// # Security Note
+/// Integration tokens (Slack bot tokens, Google OAuth2 client secrets, email
+/// passwords, etc.) are stored as plaintext JSON on disk with chmod 600 on Unix.
+/// For higher security environments, consider using environment variables
+/// instead of persisting credentials to disk.
 const CREDENTIALS_FILE: &str = "integrations.json";
 
 /// All stored integration credentials.
@@ -112,7 +118,7 @@ impl IntegrationCredentials {
         Ok(creds)
     }
 
-    /// Save credentials to disk with restrictive permissions.
+    /// Save credentials to disk with restrictive permissions (atomic write).
     pub fn save(&self) -> anyhow::Result<()> {
         let path = credentials_path();
         if let Some(parent) = path.parent() {
@@ -128,16 +134,21 @@ impl IntegrationCredentials {
         }
 
         let json = serde_json::to_string_pretty(self)?;
-        std::fs::write(&path, &json)?;
 
-        // Set file permissions to 600 (owner read/write only)
+        // Atomic write: write to a temp file then rename to avoid corruption
+        // on crash or power failure
+        let tmp_path = path.with_extension("json.tmp");
+        std::fs::write(&tmp_path, &json)?;
+
+        // Set file permissions to 600 (owner read/write only) before rename
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let perms = std::fs::Permissions::from_mode(0o600);
-            std::fs::set_permissions(&path, perms)?;
+            std::fs::set_permissions(&tmp_path, perms)?;
         }
 
+        std::fs::rename(&tmp_path, &path)?;
         Ok(())
     }
 
@@ -255,14 +266,26 @@ impl IntegrationCredentials {
                 });
             }
             "email" => {
-                // Token format: "email:password" or "email:password@host:port"
-                let parts: Vec<&str> = token.splitn(2, ':').collect();
-                if parts.len() < 2 {
-                    anyhow::bail!("Email token format: email:password");
+                // Token format: "email\npassword" (newline-separated to avoid
+                // issues with passwords containing colons). Also supports legacy
+                // "email:password" format if no newline found.
+                let (email_part, pass_part) = if token.contains('\n') {
+                    let parts: Vec<&str> = token.splitn(2, '\n').collect();
+                    (parts[0], parts.get(1).copied().unwrap_or(""))
+                } else {
+                    // Legacy format: split on first colon only
+                    let parts: Vec<&str> = token.splitn(2, ':').collect();
+                    if parts.len() < 2 {
+                        anyhow::bail!("Email token format: email:password (or email\\npassword if password contains colons)");
+                    }
+                    (parts[0], parts[1])
+                };
+                if email_part.is_empty() || pass_part.is_empty() {
+                    anyhow::bail!("Both email and password are required");
                 }
                 self.email = Some(EmailCredentials {
-                    email: parts[0].to_string(),
-                    password: parts[1].to_string(),
+                    email: email_part.to_string(),
+                    password: pass_part.to_string(),
                     imap_host: default_imap_host(),
                     imap_port: default_imap_port(),
                     smtp_host: default_smtp_host(),

@@ -2399,6 +2399,7 @@ dependencies = [
  "directories",
  "dirs",
  "futures",
+ "getrandom 0.2.17",
  "glob",
  "imap",
  "inquire",
