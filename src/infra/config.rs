@@ -27,6 +27,10 @@ pub struct Config {
 
     #[serde(default)]
     pub integrations: IntegrationsConfig,
+
+    /// Daemon-specific settings (optional section in config.toml).
+    #[serde(default)]
+    pub daemon: Option<DaemonTomlConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -207,6 +211,19 @@ pub struct MsOfficeConfig {
     /// Base directory for Office files (defaults to ~/Documents)
     #[serde(default)]
     pub base_dir: Option<String>,
+}
+
+/// Optional `[daemon]` section in config.toml.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DaemonTomlConfig {
+    /// Whether to auto-execute tasks when the bot is mentioned.
+    /// Defaults to `true` when the section is present.
+    #[serde(default = "default_true")]
+    pub auto_execute: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Config {

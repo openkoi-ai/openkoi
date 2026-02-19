@@ -419,12 +419,45 @@ async fn run_daemon_command(action: DaemonAction, config: &Config) -> anyhow::Re
                 return Ok(());
             }
 
+            // Discover providers (same flow as the main run path)
+            let discovered = openkoi::onboarding::ensure_ready().await?;
+            let model_ref = ModelRef::new(&discovered.provider, &discovered.model);
+            let providers = resolver::discover_providers().await;
+            let provider = resolver::find_provider(&providers, &model_ref.provider)
+                .cloned()
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Provider '{}' not available. Run `openkoi init` to set up.",
+                        model_ref.provider
+                    )
+                })?;
+
+            // Initialize store
+            let store = init_store();
+
+            // Initialize MCP tools
+            let (mcp_tools, _mcp_manager) = init_mcp(config).await;
+
+            // Skill registry
+            let skill_registry =
+                std::sync::Arc::new(openkoi::skills::registry::SkillRegistry::new());
+
+            // Build daemon context
+            let daemon_ctx = daemon::DaemonContext {
+                provider,
+                model_ref,
+                config: config.clone(),
+                store,
+                skill_registry,
+                mcp_tools,
+            };
+
             // Write PID file
             let pid_path = daemon::write_pid_file()?;
             println!("Daemon PID file: {}", pid_path.display());
 
             let registry = std::sync::Arc::new(registry);
-            let result = daemon::run_daemon(config, registry).await;
+            let result = daemon::run_daemon(daemon_ctx, registry).await;
 
             // Clean up PID file on exit
             daemon::remove_pid_file();

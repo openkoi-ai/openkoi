@@ -508,6 +508,39 @@ impl Store {
         Ok(())
     }
 
+    /// Query patterns with `status = 'approved'` — used by the daemon to
+    /// evaluate cron-based triggers.
+    pub fn query_approved_patterns(&self) -> anyhow::Result<Vec<UsagePatternRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, pattern_type, description, frequency, confidence,
+             sample_count, first_seen, last_seen, proposed_skill, status
+             FROM usage_patterns
+             WHERE status = 'approved'
+             ORDER BY confidence DESC",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(UsagePatternRow {
+                id: row.get(0)?,
+                pattern_type: row.get(1)?,
+                description: row.get(2)?,
+                frequency: row.get(3)?,
+                confidence: row.get(4)?,
+                sample_count: row.get(5)?,
+                first_seen: row.get(6)?,
+                last_seen: row.get(7)?,
+                proposed_skill: row.get(8)?,
+                status: row.get(9)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
     pub fn query_detected_patterns(&self) -> anyhow::Result<Vec<UsagePatternRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, pattern_type, description, frequency, confidence,
