@@ -113,7 +113,7 @@ async fn discover_oauth_providers() -> Option<Vec<DiscoveredProvider>> {
     let store = AuthStore::load().ok()?;
     let mut found = Vec::new();
 
-    for (provider_id, _info) in &store.providers {
+    for provider_id in store.providers.keys() {
         let model = default_model_for_oauth(provider_id);
         if !model.is_empty() {
             found.push(DiscoveredProvider {

@@ -31,12 +31,21 @@ const BUNDLED_EVALUATORS: &[(&str, &str)] = &[
     ),
 ];
 
+/// Bundled task skills (embedded in binary via include_str!).
+const BUNDLED_TASKS: &[(&str, &str)] = &[(
+    "self-iterate",
+    include_str!("../../skills/self-iterate/SKILL.md"),
+)];
+
 /// Load all skills from all sources, in precedence order.
 pub fn load_all_skills() -> Vec<SkillEntry> {
     let mut skills = Vec::new();
 
     // 1. Bundled evaluators (lowest precedence)
     skills.extend(load_bundled_evaluators());
+
+    // 2. Bundled task skills
+    skills.extend(load_bundled_tasks());
 
     // 2. Managed skills
     if let Ok(managed) =
@@ -97,6 +106,36 @@ fn load_bundled_evaluators() -> Vec<SkillEntry> {
             }
             Err(e) => {
                 tracing::warn!("Failed to parse bundled evaluator '{}': {}", name, e);
+            }
+        }
+    }
+
+    skills
+}
+
+/// Load bundled task skills from embedded strings.
+fn load_bundled_tasks() -> Vec<SkillEntry> {
+    let mut skills = Vec::new();
+
+    for (name, content) in BUNDLED_TASKS {
+        match parse_skill_md(content) {
+            Ok((frontmatter, _body)) => {
+                let metadata = frontmatter_to_metadata(&frontmatter);
+                skills.push(SkillEntry {
+                    name: name.to_string(),
+                    kind: SkillKind::Task,
+                    description: frontmatter
+                        .description
+                        .unwrap_or_else(|| format!("{} task", name)),
+                    source: SkillSource::OpenKoiBundled,
+                    path: None,
+                    metadata,
+                    embedding: None,
+                    approved: true,
+                });
+            }
+            Err(e) => {
+                tracing::warn!("Failed to parse bundled task skill '{}': {}", name, e);
             }
         }
     }

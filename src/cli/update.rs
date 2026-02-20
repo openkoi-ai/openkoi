@@ -3,8 +3,8 @@
 // Checks GitHub releases for the latest version and downloads the binary
 // for the current platform.
 
-const GITHUB_REPO: &str = "openkoi/openkoi";
-const RELEASES_API: &str = "https://api.github.com/repos/openkoi/openkoi/releases/latest";
+const GITHUB_REPO: &str = "openkoi-ai/openkoi";
+const RELEASES_API: &str = "https://api.github.com/repos/openkoi-ai/openkoi/releases/latest";
 
 /// Check for and optionally install updates.
 pub async fn run_update(version: Option<String>, check_only: bool) -> anyhow::Result<()> {

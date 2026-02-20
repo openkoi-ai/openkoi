@@ -435,7 +435,7 @@ pub async fn github_device_code_flow() -> anyhow::Result<AuthInfo> {
 
         // Show progress indicator
         poll_count += 1;
-        if poll_count % 6 == 0 {
+        if poll_count.is_multiple_of(6) {
             let elapsed = poll_count * poll_interval.as_secs() as u32;
             eprint!("\r  Waiting for authorization... ({elapsed}s elapsed)  ");
         }

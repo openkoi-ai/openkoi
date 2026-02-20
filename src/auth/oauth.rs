@@ -60,7 +60,7 @@ fn generate_random_string(len: usize) -> String {
 pub fn base64url_encode(data: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
-    let mut result = String::with_capacity((data.len() * 4 + 2) / 3);
+    let mut result = String::with_capacity((data.len() * 4).div_ceil(3));
     let mut i = 0;
     while i + 2 < data.len() {
         let n = ((data[i] as u32) << 16) | ((data[i + 1] as u32) << 8) | (data[i + 2] as u32);
@@ -90,7 +90,7 @@ pub fn base64url_encode(data: &[u8]) -> String {
 pub fn base64_encode(data: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-    let mut result = String::with_capacity(((data.len() + 2) / 3) * 4);
+    let mut result = String::with_capacity(data.len().div_ceil(3) * 4);
     let mut i = 0;
     while i + 2 < data.len() {
         let n = ((data[i] as u32) << 16) | ((data[i + 1] as u32) << 8) | (data[i + 2] as u32);

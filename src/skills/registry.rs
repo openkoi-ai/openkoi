@@ -69,7 +69,7 @@ impl SkillRegistry {
             return Ok(body);
         }
 
-        // Try bundled content
+        // Try bundled content (evaluators + tasks)
         let bundled = [
             ("general", include_str!("../../evaluators/general/SKILL.md")),
             (
@@ -91,6 +91,10 @@ impl SkillRegistry {
             (
                 "test-quality",
                 include_str!("../../evaluators/test-quality/SKILL.md"),
+            ),
+            (
+                "self-iterate",
+                include_str!("../../skills/self-iterate/SKILL.md"),
             ),
         ];
 

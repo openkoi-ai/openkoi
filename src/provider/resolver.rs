@@ -216,13 +216,7 @@ pub async fn discover_providers_with_config(config: &Config) -> Vec<Arc<dyn Mode
         };
         let key = match key {
             Some(k) => k,
-            None => match load_saved_key(id).await {
-                Some(k) => k,
-                None => {
-                    // Some providers may not need a key (e.g., local endpoints)
-                    String::new()
-                }
-            },
+            None => (load_saved_key(id).await).unwrap_or_default(),
         };
 
         let display_name = cfg

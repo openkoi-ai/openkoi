@@ -132,6 +132,117 @@ openkoi connect status
 
 Supported platforms: **Linux** (x86_64, ARM64) and **macOS** (Intel, Apple Silicon). Built with Rust + Tokio. < 10ms startup, ~5MB idle memory, ~20MB binary.
 
+## Skills
+
+Skills are markdown files (`SKILL.md`) with YAML frontmatter that teach OpenKoi how to handle specific tasks. They use the same format as OpenClaw, so skills are portable between tools.
+
+### How skills work
+
+OpenKoi loads skills from multiple sources in precedence order:
+
+| Source | Location | Precedence |
+|--------|----------|------------|
+| Bundled | Embedded in binary | Lowest |
+| Managed | `~/.openkoi/skills/managed/` | |
+| Workspace | `.agents/skills/` in your project | |
+| User global | `~/.openkoi/skills/user/` | |
+| Pattern-proposed | `~/.openkoi/skills/proposed/` | Highest |
+
+When you run a task, the skill selector ranks eligible skills by semantic similarity and historical effectiveness, then injects the most relevant ones into the prompt. You don't need to specify which skill to use — OpenKoi picks automatically.
+
+### Bundled skills
+
+These ship with the binary and are always available:
+
+| Skill | Kind | Purpose |
+|-------|------|---------|
+| `self-iterate` | task | Guides OpenKoi when modifying its own codebase |
+| `general` | evaluator | Fallback evaluator for any task |
+| `code-review` | evaluator | Evaluates code for correctness, safety, style |
+| `prose-quality` | evaluator | Evaluates writing for clarity, accuracy, tone |
+| `sql-safety` | evaluator | Evaluates SQL for correctness, safety, performance |
+| `api-design` | evaluator | Evaluates APIs for consistency, error handling |
+| `test-quality` | evaluator | Evaluates tests for coverage, assertions, isolation |
+
+### Writing a custom skill
+
+Create a directory with a `SKILL.md` file:
+
+```bash
+mkdir -p .agents/skills/my-skill
+```
+
+```markdown
+---
+name: my-skill
+description: Enforces our team's API conventions.
+metadata:
+  categories: ["api", "code"]
+---
+
+# My Skill
+
+When building API endpoints for this project:
+
+- Use snake_case for all field names
+- Return 404 with `{"error": "not_found"}` for missing resources
+- Always include `X-Request-Id` header in responses
+- Validate all path parameters before database queries
+```
+
+Place it in `.agents/skills/` for project-specific skills, or `~/.openkoi/skills/user/` for global skills. OpenKoi picks it up automatically on the next run.
+
+### Example: self-iterate
+
+The `self-iterate` skill is how OpenKoi works on its own codebase. When a task targets the OpenKoi source tree, the skill selector activates it automatically based on category matching (`self-improvement`, `rust`, `code`, `refactor`).
+
+It enforces architectural invariants that must never be violated:
+
+- **Single binary** — everything embeds via `include_str!`, no runtime file dependencies
+- **Zero-dependency crypto** — SHA-256 and base64 are hand-rolled, only `getrandom` for CSPRNG
+- **Provider parity** — all providers implement the same `ModelProvider` trait
+- **Iteration safety** — circuit breakers (token budget, time budget, max iterations) cannot be weakened
+- **Atomic writes** — all credential/config files use write-to-temp-then-rename
+
+It also defines hard boundaries on recursive self-improvement: OpenKoi can improve its own skills, providers, and memory system, but cannot disable its own safety circuit breakers or bypass evaluation.
+
+### Evaluator skills
+
+Evaluator skills define **how OpenKoi judges its own output**. They specify scoring dimensions and rubrics:
+
+```markdown
+---
+name: my-evaluator
+kind: evaluator
+description: Evaluates database migrations for safety.
+metadata:
+  categories: ["database", "migration"]
+  dimensions:
+    - { name: reversibility, weight: 0.4 }
+    - { name: data_safety, weight: 0.35 }
+    - { name: performance, weight: 0.25 }
+---
+
+# Database Migration Evaluator
+
+## Reversibility (40%)
+- Is there a matching down migration?
+- Can the migration be rolled back without data loss?
+...
+```
+
+Place evaluator skills in `.agents/evaluators/` (project) or `~/.openkoi/evaluators/user/` (global).
+
+### Managing skills
+
+```bash
+openkoi learn               # Review pattern-proposed skills
+openkoi learn --install     # Install a managed skill
+openkoi status              # See active skills and effectiveness scores
+```
+
+OpenKoi's pattern miner watches your usage and proposes new skills when it detects recurring workflows. Run `openkoi learn` to review and approve them.
+
 ## Documentation
 
 Full documentation at [openkoi.ai](https://openkoi.ai).

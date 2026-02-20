@@ -52,10 +52,12 @@ fn test_registry_get_by_kind() {
     let evaluators = registry.get_by_kind(SkillKind::Evaluator);
     assert!(evaluators.len() >= 6);
 
-    // No generation skills bundled
+    // Bundled task skills (e.g. self-iterate)
     let tasks = registry.get_by_kind(SkillKind::Task);
-    // May be 0 or more depending on user's filesystem, but bundled has none
-    let _ = tasks;
+    assert!(
+        tasks.iter().any(|s| s.name == "self-iterate"),
+        "Missing bundled 'self-iterate' task skill"
+    );
 }
 
 #[test]
@@ -90,7 +92,10 @@ fn test_registry_all_skills() {
     let registry = SkillRegistry::new();
 
     let all = registry.all();
-    assert!(all.len() >= 6, "Should have at least 6 skills total");
+    assert!(
+        all.len() >= 7,
+        "Should have at least 7 skills total (6 evaluators + 1 task)"
+    );
 }
 
 #[test]
