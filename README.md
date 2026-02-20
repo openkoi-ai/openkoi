@@ -38,16 +38,23 @@ OpenKoi detects your API keys from the environment, picks the best available mod
 ```bash
 openkoi "task"              # Run a task (default 3 iterations)
 openkoi chat                # Interactive REPL
-openkoi learn               # Review proposed skills
+openkoi learn               # Review proposed skills (interactive picker)
 openkoi status              # Show costs, memory, active models
 openkoi doctor              # Run diagnostics
-openkoi connect copilot     # Login to GitHub Copilot
-openkoi connect chatgpt     # Login to ChatGPT Plus/Pro
-openkoi connect slack       # Connect an integration
-openkoi disconnect copilot  # Remove stored credentials
-openkoi export all          # Export data as JSON/YAML
+openkoi connect             # Interactive picker: choose provider or integration
+openkoi connect copilot     # Login to GitHub Copilot (direct)
+openkoi connect chatgpt     # Login to ChatGPT Plus/Pro (direct)
+openkoi disconnect          # Interactive picker: choose from connected providers
+openkoi disconnect copilot  # Remove stored credentials (direct)
+openkoi daemon              # Interactive picker: start/stop/status
+openkoi export              # Interactive picker: choose target and format
+openkoi export all          # Export all data as JSON (direct)
+openkoi -m ?                # Interactive model picker
+openkoi --select-model      # Same as -m ?
 openkoi update              # Self-update
 ```
+
+All commands that accept an argument also work without one — omitting the argument shows an interactive selection menu. Explicit arguments still work exactly as before.
 
 ## Providers
 
@@ -102,11 +109,17 @@ OpenKoi auto-discovers credentials in this order:
 ### Connect and Disconnect
 
 ```bash
-# Login to a subscription provider
+# Interactive picker (shows all providers and integrations)
+openkoi connect
+
+# Or specify directly
 openkoi connect copilot     # GitHub Copilot
 openkoi connect chatgpt     # ChatGPT Plus/Pro
 
-# Remove stored credentials
+# Interactive disconnect (shows only currently connected providers)
+openkoi disconnect
+
+# Or specify directly
 openkoi disconnect copilot
 openkoi disconnect chatgpt
 openkoi disconnect anthropic   # Remove saved API key
