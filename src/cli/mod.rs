@@ -19,9 +19,13 @@ pub struct Cli {
     #[arg(trailing_var_arg = true)]
     pub task: Vec<String>,
 
-    /// Model to use (provider/model format)
+    /// Model to use (provider/model format, or "?" to pick interactively)
     #[arg(short, long)]
     pub model: Option<String>,
+
+    /// Interactively select a model from available providers
+    #[arg(long)]
+    pub select_model: bool,
 
     /// Max iterations (0 = no iteration, just execute)
     #[arg(short, long, default_value = "3")]
@@ -73,18 +77,18 @@ pub enum Commands {
     Init,
     /// Manage integrations
     Connect {
-        /// App to connect (e.g. slack, notion)
-        app: String,
+        /// App to connect (e.g. slack, notion) — interactive picker if omitted
+        app: Option<String>,
     },
     /// Disconnect / logout from a provider or integration
     Disconnect {
-        /// Provider or integration to disconnect (e.g. copilot, chatgpt)
-        app: String,
+        /// Provider or integration to disconnect — interactive picker if omitted
+        app: Option<String>,
     },
     /// Background daemon for automated integration watching
     Daemon {
         #[command(subcommand)]
-        action: DaemonAction,
+        action: Option<DaemonAction>,
     },
     /// Run system diagnostics
     Doctor,
@@ -101,12 +105,11 @@ pub enum Commands {
     },
     /// Export data (learnings, sessions, patterns)
     Export {
-        /// What to export: learnings, sessions, patterns, all
-        #[arg(default_value = "all")]
-        target: String,
+        /// What to export: learnings, sessions, patterns, all — interactive picker if omitted
+        target: Option<String>,
         /// Output format
-        #[arg(long, default_value = "json")]
-        format: String,
+        #[arg(long)]
+        format: Option<String>,
         /// Output file path (defaults to stdout)
         #[arg(short, long)]
         output: Option<String>,

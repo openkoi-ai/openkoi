@@ -1,16 +1,112 @@
 // src/cli/connect.rs — Integration setup with real credential storage + validation
 
 use crate::integrations::credentials::{self, IntegrationCredentials};
+use std::fmt;
 
-/// Handle the `openkoi connect <app>` command.
+// ─── Connect target options for interactive picker ──────────────────────────
+
+#[derive(Clone)]
+struct ConnectOption {
+    id: &'static str,
+    label: &'static str,
+    hint: &'static str,
+}
+
+impl fmt::Display for ConnectOption {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:<20} {}", self.label, self.hint)
+    }
+}
+
+/// All available connect targets.
+fn connect_options() -> Vec<ConnectOption> {
+    vec![
+        ConnectOption {
+            id: "copilot",
+            label: "GitHub Copilot",
+            hint: "(device code, free with subscription)",
+        },
+        ConnectOption {
+            id: "chatgpt",
+            label: "ChatGPT Plus/Pro",
+            hint: "(device code, free with subscription)",
+        },
+        ConnectOption {
+            id: "slack",
+            label: "Slack",
+            hint: "(Web API, bot token)",
+        },
+        ConnectOption {
+            id: "discord",
+            label: "Discord",
+            hint: "(Bot API, bot token)",
+        },
+        ConnectOption {
+            id: "telegram",
+            label: "Telegram",
+            hint: "(Bot API, bot token)",
+        },
+        ConnectOption {
+            id: "notion",
+            label: "Notion",
+            hint: "(REST API, API key)",
+        },
+        ConnectOption {
+            id: "imessage",
+            label: "iMessage",
+            hint: "(macOS only, AppleScript)",
+        },
+        ConnectOption {
+            id: "google_docs",
+            label: "Google Docs",
+            hint: "(OAuth2)",
+        },
+        ConnectOption {
+            id: "google_sheets",
+            label: "Google Sheets",
+            hint: "(OAuth2, shares creds with Docs)",
+        },
+        ConnectOption {
+            id: "email",
+            label: "Email",
+            hint: "(IMAP/SMTP)",
+        },
+        ConnectOption {
+            id: "msoffice",
+            label: "MS Office",
+            hint: "(local .docx/.xlsx files)",
+        },
+        ConnectOption {
+            id: "status",
+            label: "Show Status",
+            hint: "(view all connection statuses)",
+        },
+    ]
+}
+
+/// Handle the `openkoi connect [app]` command.
 ///
+/// If no app is specified, shows an interactive picker.
 /// Supports both AI provider logins and integration connections:
 ///   openkoi connect copilot         — GitHub Copilot (device code)
 ///   openkoi connect chatgpt         — ChatGPT Plus/Pro (device code)
 ///   openkoi connect slack           — Slack workspace
 ///   ...etc
-pub async fn run_connect(app: &str) -> anyhow::Result<()> {
-    match app {
+pub async fn run_connect(app: Option<&str>) -> anyhow::Result<()> {
+    let app = match app {
+        Some(a) => a.to_string(),
+        None => {
+            // Interactive picker
+            let options = connect_options();
+            let choice = inquire::Select::new("Connect to:", options)
+                .with_help_message("Select an app or provider to connect")
+                .prompt()
+                .map_err(|_| anyhow::anyhow!("Selection cancelled"))?;
+            choice.id.to_string()
+        }
+    };
+
+    match app.as_str() {
         // ── AI provider OAuth logins ──
         "copilot" | "github-copilot" | "github_copilot" => {
             connect_provider_oauth("copilot", "GitHub Copilot").await
@@ -64,13 +160,80 @@ pub async fn run_connect(app: &str) -> anyhow::Result<()> {
     }
 }
 
-/// Handle the `openkoi disconnect <app>` command.
+/// Handle the `openkoi disconnect [app]` command.
 ///
+/// If no app is specified, shows an interactive picker of currently connected providers.
 /// Removes stored credentials for an AI provider or integration.
 /// For OAuth providers, removes the token from `~/.openkoi/auth.json`.
 /// For API key providers, removes the key file from `~/.openkoi/credentials/`.
-pub async fn run_disconnect(app: &str) -> anyhow::Result<()> {
-    match app {
+pub async fn run_disconnect(app: Option<&str>) -> anyhow::Result<()> {
+    let app = match app {
+        Some(a) => a.to_string(),
+        None => {
+            // Build list of currently connected providers/integrations
+            let mut connected: Vec<(&str, &str)> = Vec::new();
+
+            // Check OAuth providers
+            let store = crate::auth::AuthStore::load().unwrap_or_default();
+            if store.get("copilot").is_some() {
+                connected.push(("copilot", "GitHub Copilot (OAuth)"));
+            }
+            if store.get("chatgpt").is_some() {
+                connected.push(("chatgpt", "ChatGPT Plus/Pro (OAuth)"));
+            }
+
+            // Check API key providers
+            for id in &["anthropic", "openai", "openrouter", "groq", "together", "deepseek"] {
+                if store.get(id).is_some() {
+                    connected.push((id, id));
+                }
+            }
+
+            // Check integration credentials
+            let creds = IntegrationCredentials::load().unwrap_or_default();
+            if creds.has_credentials("slack") {
+                connected.push(("slack", "Slack"));
+            }
+            if creds.has_credentials("discord") {
+                connected.push(("discord", "Discord"));
+            }
+            if creds.has_credentials("telegram") {
+                connected.push(("telegram", "Telegram"));
+            }
+            if creds.has_credentials("notion") {
+                connected.push(("notion", "Notion"));
+            }
+            if creds.has_credentials("google_docs") {
+                connected.push(("google_docs", "Google Docs"));
+            }
+            if creds.has_credentials("email") {
+                connected.push(("email", "Email"));
+            }
+
+            // Always offer "all" option
+            connected.push(("all", "All providers (disconnect everything)"));
+
+            if connected.len() <= 1 {
+                // Only "all" is present, nothing connected
+                println!("No providers or integrations are currently connected.");
+                return Ok(());
+            }
+
+            let labels: Vec<String> = connected.iter().map(|(id, desc)| {
+                format!("{:<20} {}", id, desc)
+            }).collect();
+
+            let choice = inquire::Select::new("Disconnect from:", labels.clone())
+                .with_help_message("Select a provider or integration to disconnect")
+                .prompt()
+                .map_err(|_| anyhow::anyhow!("Selection cancelled"))?;
+
+            let idx = labels.iter().position(|l| l == &choice).unwrap_or(0);
+            connected[idx].0.to_string()
+        }
+    };
+
+    match app.as_str() {
         // ── AI provider OAuth logouts ──
         "copilot" | "github-copilot" | "github_copilot" => {
             disconnect_provider("copilot", "GitHub Copilot")
@@ -80,7 +243,7 @@ pub async fn run_disconnect(app: &str) -> anyhow::Result<()> {
         }
         // ── API key providers ──
         "anthropic" | "openai" | "openrouter" | "groq" | "together" | "deepseek" => {
-            disconnect_api_key(app)
+            disconnect_api_key(&app)
         }
         // ── All ──
         "all" => {

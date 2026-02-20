@@ -1,6 +1,5 @@
 // src/cli/learn.rs — Pattern review, skill approval, and soul evolution
 
-use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 
 use super::LearnAction;
@@ -11,9 +10,10 @@ use crate::provider::resolver;
 use crate::soul::{evolution::SoulEvolution, loader};
 
 /// Handle the `openkoi learn` command.
+/// Shows an interactive picker if no action is specified and proposed skills exist.
 pub async fn run_learn(action: Option<LearnAction>) -> anyhow::Result<()> {
     match action {
-        Some(LearnAction::List) | None => {
+        Some(LearnAction::List) => {
             show_patterns().await?;
         }
         Some(LearnAction::Install { name }) => {
@@ -21,6 +21,26 @@ pub async fn run_learn(action: Option<LearnAction>) -> anyhow::Result<()> {
         }
         Some(LearnAction::EvolveSoul) => {
             evolve_soul().await?;
+        }
+        None => {
+            // Interactive: let the user pick what to do
+            let options = vec![
+                "list          — View detected patterns and proposed skills",
+                "install       — Install a proposed or community skill",
+                "evolve-soul   — Propose soul evolution from learnings",
+            ];
+            let choice = inquire::Select::new("Learn action:", options)
+                .with_help_message("Select what you'd like to do")
+                .prompt()
+                .map_err(|_| anyhow::anyhow!("Selection cancelled"))?;
+
+            let action_key = choice.split_whitespace().next().unwrap_or("list");
+            match action_key {
+                "list" => show_patterns().await?,
+                "install" => install_skill_interactive().await?,
+                "evolve-soul" => evolve_soul().await?,
+                _ => show_patterns().await?,
+            }
         }
     }
     Ok(())
@@ -95,19 +115,21 @@ async fn show_patterns() -> anyhow::Result<()> {
 
         println!("  {}. {}", i + 1, name_str);
         println!("     {}", description);
-        println!("     [a]pprove  [d]ismiss  [v]iew");
-        println!();
 
-        // Read user input
-        let choice = prompt_choice()?;
+        // Use inquire::Select for the action choice
+        let actions = vec!["Approve", "Dismiss", "View", "Skip"];
+        let choice = inquire::Select::new("Action:", actions)
+            .prompt()
+            .unwrap_or("Skip");
+
         match choice {
-            SkillChoice::Approve => {
+            "Approve" => {
                 approve_proposed_skill(&name_str)?;
             }
-            SkillChoice::Dismiss => {
+            "Dismiss" => {
                 dismiss_proposed_skill(&name_str)?;
             }
-            SkillChoice::View => {
+            "View" => {
                 // Show the full SKILL.md content
                 if skill_path.exists() {
                     let content = std::fs::read_to_string(&skill_path)?;
@@ -117,13 +139,15 @@ async fn show_patterns() -> anyhow::Result<()> {
                     println!();
 
                     // After viewing, ask again
-                    println!("     [a]pprove  [d]ismiss  [s]kip");
-                    let choice2 = prompt_choice()?;
+                    let post_actions = vec!["Approve", "Dismiss", "Skip"];
+                    let choice2 = inquire::Select::new("Action:", post_actions)
+                        .prompt()
+                        .unwrap_or("Skip");
                     match choice2 {
-                        SkillChoice::Approve => {
+                        "Approve" => {
                             approve_proposed_skill(&name_str)?;
                         }
-                        SkillChoice::Dismiss => {
+                        "Dismiss" => {
                             dismiss_proposed_skill(&name_str)?;
                         }
                         _ => {
@@ -134,37 +158,13 @@ async fn show_patterns() -> anyhow::Result<()> {
                     println!("     (no SKILL.md to view)");
                 }
             }
-            SkillChoice::Skip => {
-                // Do nothing, move to next
+            _ => {
+                // Skip — do nothing, move to next
             }
         }
     }
 
     Ok(())
-}
-
-enum SkillChoice {
-    Approve,
-    Dismiss,
-    View,
-    Skip,
-}
-
-fn prompt_choice() -> anyhow::Result<SkillChoice> {
-    print!("  > ");
-    io::stdout().flush()?;
-
-    let stdin = io::stdin();
-    let mut line = String::new();
-    stdin.lock().read_line(&mut line)?;
-    let input = line.trim().to_lowercase();
-
-    Ok(match input.as_str() {
-        "a" | "approve" => SkillChoice::Approve,
-        "d" | "dismiss" => SkillChoice::Dismiss,
-        "v" | "view" => SkillChoice::View,
-        _ => SkillChoice::Skip,
-    })
 }
 
 /// Approve a proposed skill: move it from proposed/ to user/ directory.
@@ -254,6 +254,37 @@ async fn install_skill(name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Interactive skill install: list available proposed skills and let user pick one.
+async fn install_skill_interactive() -> anyhow::Result<()> {
+    let proposed_dir = paths::proposed_skills_dir();
+    let entries: Vec<_> = std::fs::read_dir(&proposed_dir)
+        .map(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().map(|ft| ft.is_dir()).unwrap_or(false))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if entries.is_empty() {
+        println!("No proposed skills found to install.");
+        println!("Community skill registry is not yet available.");
+        return Ok(());
+    }
+
+    let names: Vec<String> = entries
+        .iter()
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
+
+    let choice = inquire::Select::new("Select a skill to install:", names)
+        .with_help_message("Choose a proposed skill to approve and install")
+        .prompt()
+        .map_err(|_| anyhow::anyhow!("Selection cancelled"))?;
+
+    install_skill(&choice).await
+}
+
 /// Propose soul evolution by analyzing accumulated learnings,
 /// with interactive approval to auto-write.
 async fn evolve_soul() -> anyhow::Result<()> {
@@ -298,21 +329,17 @@ async fn evolve_soul() -> anyhow::Result<()> {
             println!("{}", update.proposed);
             println!();
 
-            // Interactive approval
-            println!("Apply this soul evolution?");
-            println!(
-                "  [y]es — write to {}  [n]o — discard",
-                paths::soul_path().display()
-            );
-            print!("  > ");
-            io::stdout().flush()?;
+            // Interactive approval using inquire::Confirm
+            let apply = inquire::Confirm::new("Apply this soul evolution?")
+                .with_default(false)
+                .with_help_message(&format!(
+                    "Writes to {}",
+                    paths::soul_path().display()
+                ))
+                .prompt()
+                .unwrap_or(false);
 
-            let stdin = io::stdin();
-            let mut line = String::new();
-            stdin.lock().read_line(&mut line)?;
-            let input = line.trim().to_lowercase();
-
-            if input == "y" || input == "yes" {
+            if apply {
                 let soul_path = paths::soul_path();
                 // Ensure parent directory exists
                 if let Some(parent) = soul_path.parent() {

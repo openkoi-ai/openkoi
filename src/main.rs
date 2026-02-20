@@ -14,8 +14,9 @@ use openkoi::plugins::mcp::McpManager;
 use openkoi::plugins::rhai_host::{RhaiExposedFunctions, RhaiHost};
 use openkoi::plugins::wasm::WasmPluginManager;
 use openkoi::provider::resolver;
-use openkoi::provider::ModelRef;
+use openkoi::provider::{ModelProvider, ModelRef};
 use openkoi::security::permissions;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() {
@@ -50,10 +51,10 @@ async fn run() -> anyhow::Result<()> {
             return openkoi::cli::learn::run_learn(action.clone()).await;
         }
         Some(Commands::Connect { app }) => {
-            return openkoi::cli::connect::run_connect(app).await;
+            return openkoi::cli::connect::run_connect(app.as_deref()).await;
         }
         Some(Commands::Disconnect { app }) => {
-            return openkoi::cli::connect::run_disconnect(app).await;
+            return openkoi::cli::connect::run_disconnect(app.as_deref()).await;
         }
         Some(Commands::Daemon { action }) => {
             return run_daemon_command(action.clone(), &config).await;
@@ -73,7 +74,12 @@ async fn run() -> anyhow::Result<()> {
             format,
             output,
         }) => {
-            return openkoi::cli::export::run_export(target, format, output.as_deref()).await;
+            return openkoi::cli::export::run_export(
+                target.as_deref(),
+                format.as_deref(),
+                output.as_deref(),
+            )
+            .await;
         }
         Some(Commands::Migrate { status, rollback }) => {
             return openkoi::cli::migrate::run_migrate(*status, *rollback).await;
@@ -84,15 +90,23 @@ async fn run() -> anyhow::Result<()> {
     // Commands that need a provider: ensure onboarding, then resolve
     let discovered = openkoi::onboarding::ensure_ready().await?;
 
-    // Determine the model ref: CLI flag > onboarding discovery > config > default
-    let model_ref = if let Some(ref model_str) = cli.model {
+    // Discover all available providers
+    let providers = resolver::discover_providers().await;
+
+    // Determine the model ref: --select-model or -m ? > CLI flag > onboarding > config > default
+    let model_ref = if cli.select_model
+        || cli.model.as_deref() == Some("?")
+        || cli.model.as_deref() == Some("select")
+    {
+        // Interactive model picker
+        select_model_interactive(&providers)?
+    } else if let Some(ref model_str) = cli.model {
         ModelRef::parse(model_str).unwrap_or_else(|| ModelRef::new("auto", model_str.clone()))
     } else {
         ModelRef::new(&discovered.provider, &discovered.model)
     };
 
     // Resolve the provider
-    let providers = resolver::discover_providers().await;
     let provider = resolver::find_provider(&providers, &model_ref.provider)
         .cloned()
         .ok_or_else(|| {
@@ -403,9 +417,27 @@ async fn run_doctor(config: &Config) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Handle `openkoi daemon start|stop|status`.
-async fn run_daemon_command(action: DaemonAction, config: &Config) -> anyhow::Result<()> {
+/// Handle `openkoi daemon [start|stop|status]`.
+/// Shows an interactive picker if no subcommand is given.
+async fn run_daemon_command(action: Option<DaemonAction>, config: &Config) -> anyhow::Result<()> {
     use openkoi::infra::daemon;
+
+    let action = match action {
+        Some(a) => a,
+        None => {
+            // Interactive picker
+            let options = vec!["start", "stop", "status"];
+            let choice = inquire::Select::new("Daemon action:", options)
+                .prompt()
+                .map_err(|_| anyhow::anyhow!("Selection cancelled"))?;
+            match choice {
+                "start" => DaemonAction::Start,
+                "stop" => DaemonAction::Stop,
+                "status" => DaemonAction::Status,
+                _ => unreachable!(),
+            }
+        }
+    };
 
     match action {
         DaemonAction::Start => {
@@ -723,4 +755,63 @@ fn init_plugins(config: &Config) -> HookExecutor {
     };
 
     HookExecutor::new(wasm, rhai)
+}
+
+/// Interactive model selection via `inquire::Select`.
+///
+/// Lists all available providers and their models so the user doesn't have
+/// to remember the `provider/model` format. Invoked by `--select-model` or `-m ?`.
+fn select_model_interactive(providers: &[Arc<dyn ModelProvider>]) -> anyhow::Result<ModelRef> {
+    if providers.is_empty() {
+        anyhow::bail!("No providers available. Run `openkoi init` to set up a provider.");
+    }
+
+    // Build a flat list of "provider / model" entries with display info
+    let mut entries: Vec<(String, String, String)> = Vec::new(); // (provider_id, model_id, display)
+
+    for p in providers {
+        let models = p.models();
+        if models.is_empty() {
+            // Provider with no model list (e.g. OpenRouter "auto")
+            entries.push((
+                p.id().to_string(),
+                "auto".to_string(),
+                format!("{:<16} auto", p.name()),
+            ));
+        } else {
+            for m in &models {
+                entries.push((
+                    p.id().to_string(),
+                    m.id.clone(),
+                    format!(
+                        "{:<16} {:<36} ({}K ctx)",
+                        p.name(),
+                        m.id,
+                        m.context_window / 1000
+                    ),
+                ));
+            }
+        }
+    }
+
+    if entries.is_empty() {
+        anyhow::bail!("No models found across available providers.");
+    }
+
+    let display_list: Vec<String> = entries.iter().map(|(_, _, d)| d.clone()).collect();
+
+    let choice = inquire::Select::new("Select a model:", display_list.clone())
+        .with_help_message("Use arrow keys to browse, type to filter")
+        .with_page_size(15)
+        .prompt()
+        .map_err(|_| anyhow::anyhow!("Model selection cancelled"))?;
+
+    let idx = display_list
+        .iter()
+        .position(|d| d == &choice)
+        .unwrap_or(0);
+    let (ref provider_id, ref model_id, _) = entries[idx];
+
+    eprintln!("  Using: {}/{}", provider_id, model_id);
+    Ok(ModelRef::new(provider_id.clone(), model_id.clone()))
 }

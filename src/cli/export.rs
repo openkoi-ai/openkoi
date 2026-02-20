@@ -3,7 +3,12 @@
 // Exports learnings, sessions, patterns, or all data to JSON/YAML/CSV.
 
 /// Export data from the OpenKoi database.
-pub async fn run_export(target: &str, format: &str, output: Option<&str>) -> anyhow::Result<()> {
+/// Shows interactive pickers when target or format is not specified.
+pub async fn run_export(
+    target: Option<&str>,
+    format: Option<&str>,
+    output: Option<&str>,
+) -> anyhow::Result<()> {
     let db_path = crate::infra::paths::db_path();
     if !db_path.exists() {
         anyhow::bail!(
@@ -11,9 +16,41 @@ pub async fn run_export(target: &str, format: &str, output: Option<&str>) -> any
         );
     }
 
+    // Interactive target selection if not specified
+    let target = match target {
+        Some(t) => t.to_string(),
+        None => {
+            let options = vec![
+                "all        — Export everything",
+                "learnings  — Detected patterns and knowledge",
+                "sessions   — Chat and task sessions",
+                "patterns   — Usage patterns",
+            ];
+            let choice = inquire::Select::new("What to export:", options)
+                .with_help_message("Select the data to export")
+                .prompt()
+                .map_err(|_| anyhow::anyhow!("Selection cancelled"))?;
+            // Extract the target keyword before the spaces/dash
+            choice.split_whitespace().next().unwrap_or("all").to_string()
+        }
+    };
+
+    // Interactive format selection if not specified
+    let format = match format {
+        Some(f) => f.to_string(),
+        None => {
+            let options = vec!["json", "yaml"];
+            let choice = inquire::Select::new("Output format:", options)
+                .with_help_message("Select the export format")
+                .prompt()
+                .map_err(|_| anyhow::anyhow!("Selection cancelled"))?;
+            choice.to_string()
+        }
+    };
+
     let conn = rusqlite::Connection::open(&db_path)?;
 
-    let data = match target {
+    let data = match target.as_str() {
         "learnings" => export_learnings(&conn)?,
         "sessions" => export_sessions(&conn)?,
         "patterns" => export_patterns(&conn)?,
@@ -40,7 +77,7 @@ pub async fn run_export(target: &str, format: &str, output: Option<&str>) -> any
         }
     };
 
-    let output_str = match format {
+    let output_str = match format.as_str() {
         "json" => serde_json::to_string_pretty(&data)?,
         "yaml" | "yml" => serde_yml::to_string(&data)?,
         other => {
