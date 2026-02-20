@@ -144,11 +144,9 @@ pub async fn run_update(version: Option<String>, check_only: bool) -> anyhow::Re
 /// Determine the expected asset name for the current platform.
 fn platform_asset_name() -> anyhow::Result<String> {
     let os = if cfg!(target_os = "macos") {
-        "apple-darwin"
+        "macos"
     } else if cfg!(target_os = "linux") {
-        "unknown-linux"
-    } else if cfg!(target_os = "windows") {
-        "pc-windows"
+        "linux"
     } else {
         anyhow::bail!("Unsupported platform for self-update");
     };
@@ -156,10 +154,10 @@ fn platform_asset_name() -> anyhow::Result<String> {
     let arch = if cfg!(target_arch = "x86_64") {
         "x86_64"
     } else if cfg!(target_arch = "aarch64") {
-        "aarch64"
+        "arm64"
     } else {
         anyhow::bail!("Unsupported architecture for self-update");
     };
 
-    Ok(format!("{}-{}", arch, os))
+    Ok(format!("{}-{}", os, arch))
 }
