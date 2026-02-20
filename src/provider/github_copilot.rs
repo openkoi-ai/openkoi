@@ -181,7 +181,10 @@ impl ModelProvider for GithubCopilotProvider {
             .client
             .post(self.chat_url())
             .header("Authorization", format!("Bearer {}", self.token))
-            .header("User-Agent", format!("openkoi/{}", env!("CARGO_PKG_VERSION")))
+            .header(
+                "User-Agent",
+                format!("openkoi/{}", env!("CARGO_PKG_VERSION")),
+            )
             .header("Openai-Intent", "conversation-edits")
             .header("x-initiator", "user")
             .json(&body)
@@ -271,16 +274,21 @@ impl ModelProvider for GithubCopilotProvider {
             .client
             .post(self.chat_url())
             .header("Authorization", format!("Bearer {}", self.token))
-            .header("User-Agent", format!("openkoi/{}", env!("CARGO_PKG_VERSION")))
+            .header(
+                "User-Agent",
+                format!("openkoi/{}", env!("CARGO_PKG_VERSION")),
+            )
             .header("Openai-Intent", "conversation-edits")
             .header("x-initiator", "user")
             .json(&body);
 
-        let mut es = request_builder.eventsource().map_err(|e| OpenKoiError::Provider {
-            provider: "copilot".into(),
-            message: format!("Failed to start SSE stream: {}", e),
-            retriable: false,
-        })?;
+        let mut es = request_builder
+            .eventsource()
+            .map_err(|e| OpenKoiError::Provider {
+                provider: "copilot".into(),
+                message: format!("Failed to start SSE stream: {}", e),
+                retriable: false,
+            })?;
 
         let stream = async_stream::stream! {
             while let Some(event) = es.next().await {
@@ -381,13 +389,14 @@ pub async fn github_device_code_flow() -> anyhow::Result<AuthInfo> {
     let resp = client
         .post("https://github.com/login/device/code")
         .header("Accept", "application/json")
-        .form(&[
-            ("client_id", GITHUB_CLIENT_ID),
-            ("scope", "read:user"),
-        ])
+        .form(&[("client_id", GITHUB_CLIENT_ID), ("scope", "read:user")])
         .send()
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to request device code from GitHub: {e}. Check your internet connection."))?;
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to request device code from GitHub: {e}. Check your internet connection."
+            )
+        })?;
 
     let body: serde_json::Value = resp.json().await?;
 

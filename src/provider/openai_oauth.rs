@@ -278,11 +278,13 @@ impl ModelProvider for OpenAICodexProvider {
             .header("originator", "openkoi")
             .json(&body);
 
-        let mut es = request_builder.eventsource().map_err(|e| OpenKoiError::Provider {
-            provider: "chatgpt".into(),
-            message: format!("Failed to start SSE stream: {}", e),
-            retriable: false,
-        })?;
+        let mut es = request_builder
+            .eventsource()
+            .map_err(|e| OpenKoiError::Provider {
+                provider: "chatgpt".into(),
+                message: format!("Failed to start SSE stream: {}", e),
+                retriable: false,
+            })?;
 
         let stream = async_stream::stream! {
             while let Some(event) = es.next().await {
@@ -419,7 +421,11 @@ pub async fn openai_codex_device_flow() -> anyhow::Result<AuthInfo> {
         }))
         .send()
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to request device code from OpenAI: {e}. Check your internet connection."))?;
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to request device code from OpenAI: {e}. Check your internet connection."
+            )
+        })?;
 
     if !resp.status().is_success() {
         let error_body = resp.text().await.unwrap_or_default();
@@ -513,7 +519,11 @@ pub async fn openai_codex_device_flow() -> anyhow::Result<AuthInfo> {
 
         let error_body = resp.text().await.unwrap_or_default();
         eprintln!(); // Clear progress line
-        anyhow::bail!("Unexpected response during polling: HTTP {} — {}", status, error_body);
+        anyhow::bail!(
+            "Unexpected response during polling: HTTP {} — {}",
+            status,
+            error_body
+        );
     }
 
     // Step 4: Exchange authorization code for tokens
@@ -541,10 +551,7 @@ pub async fn openai_codex_device_flow() -> anyhow::Result<AuthInfo> {
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("No access_token in response"))?
         .to_string();
-    let refresh_token = body["refresh_token"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
+    let refresh_token = body["refresh_token"].as_str().unwrap_or("").to_string();
     if refresh_token.is_empty() {
         eprintln!("  Warning: No refresh token received. You may need to re-authenticate when the token expires.");
     }
@@ -567,7 +574,9 @@ pub async fn openai_codex_device_flow() -> anyhow::Result<AuthInfo> {
 
     if account_id.is_empty() {
         eprintln!("  Warning: Could not extract account_id from JWT. Some API calls may fail.");
-        eprintln!("  If you experience issues, try re-authenticating with: openkoi connect chatgpt");
+        eprintln!(
+            "  If you experience issues, try re-authenticating with: openkoi connect chatgpt"
+        );
     }
 
     let mut extra = HashMap::new();
@@ -653,4 +662,3 @@ pub async fn openai_codex_refresh_token(refresh_token: &str) -> anyhow::Result<A
         extra,
     ))
 }
-

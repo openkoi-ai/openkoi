@@ -212,8 +212,7 @@ impl AuthStore {
             if let Ok(key) = tokio::fs::read_to_string(&path).await {
                 let key = key.trim().to_string();
                 if !key.is_empty() {
-                    self.providers
-                        .insert(provider_id, AuthInfo::ApiKey { key });
+                    self.providers.insert(provider_id, AuthInfo::ApiKey { key });
                     count += 1;
                 }
             }
@@ -261,7 +260,10 @@ mod tests {
             .unwrap_or_default()
             .as_secs();
         let info = AuthInfo::oauth("access", "refresh", now + 30);
-        assert!(info.is_expired(), "Token expiring within grace period should be considered expired");
+        assert!(
+            info.is_expired(),
+            "Token expiring within grace period should be considered expired"
+        );
 
         // Token well in the future should not be expired
         let info2 = AuthInfo::oauth("access", "refresh", now + 3600);
@@ -290,6 +292,9 @@ mod tests {
         let json = serde_json::to_string(&store).unwrap();
         let deserialized: AuthStore = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.providers.len(), 2);
-        assert_eq!(deserialized.get("anthropic").unwrap().token(), "sk-ant-test");
+        assert_eq!(
+            deserialized.get("anthropic").unwrap().token(),
+            "sk-ant-test"
+        );
     }
 }

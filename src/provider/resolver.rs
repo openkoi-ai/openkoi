@@ -219,10 +219,7 @@ pub async fn discover_providers_with_config(config: &Config) -> Vec<Arc<dyn Mode
             None => (load_saved_key(id).await).unwrap_or_default(),
         };
 
-        let display_name = cfg
-            .display_name
-            .clone()
-            .unwrap_or_else(|| id.clone());
+        let display_name = cfg.display_name.clone().unwrap_or_else(|| id.clone());
 
         providers.push(Arc::new(OpenAICompatProvider::new(
             id.clone(),

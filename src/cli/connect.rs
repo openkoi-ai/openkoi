@@ -398,7 +398,14 @@ async fn show_connection_status() -> anyhow::Result<()> {
         }
 
         // Show API key providers from legacy credentials
-        let api_providers = ["anthropic", "openai", "openrouter", "groq", "together", "deepseek"];
+        let api_providers = [
+            "anthropic",
+            "openai",
+            "openrouter",
+            "groq",
+            "together",
+            "deepseek",
+        ];
         for id in &api_providers {
             if store.get(id).is_some() {
                 println!("  [+] {id}: API key saved");
@@ -442,7 +449,11 @@ async fn show_connection_status() -> anyhow::Result<()> {
     // Display results, matching them back to the integrations that had credentials.
     let mut result_idx = 0;
     for (_, name, has_creds) in &integration_info {
-        let status = if *has_creds { "configured" } else { "not configured" };
+        let status = if *has_creds {
+            "configured"
+        } else {
+            "not configured"
+        };
         let marker = if *has_creds { "+" } else { "-" };
         println!("  [{marker}] {name}: {status}");
 
