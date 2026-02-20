@@ -106,6 +106,32 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate release notes from commits
+        id: notes
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          # Find the previous tag (the one right before this one)
+          PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${TAG}$" | head -n1)
+          if [ -z "$PREV_TAG" ]; then
+            # First release — use all commits
+            RANGE="HEAD"
+          else
+            RANGE="${PREV_TAG}..${TAG}"
+          fi
+          # Build changelog from conventional-ish commit subjects
+          {
+            echo "## What's Changed"
+            echo ""
+            git log --pretty=format:"- %s (%h)" "$RANGE" -- | while IFS= read -r line; do
+              echo "$line"
+            done
+            echo ""
+            echo ""
+            echo "**Full Changelog**: https://github.com/openkoi-ai/openkoi/compare/${PREV_TAG:-$(git rev-list --max-parents=0 HEAD | head -1)}...${TAG}"
+          } > release_notes.md
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -116,7 +142,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body_path: release_notes.md
           files: |
             artifacts/*
         env:
