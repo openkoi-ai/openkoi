@@ -1,8 +1,17 @@
 # OpenKoi
 
+[![CI](https://github.com/openkoi-ai/openkoi/actions/workflows/ci.yml/badge.svg)](https://github.com/openkoi-ai/openkoi/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/openkoi)](https://crates.io/crates/openkoi)
+[![Crates.io Downloads](https://img.shields.io/crates/d/openkoi?label=crates.io%20downloads)](https://crates.io/crates/openkoi)
+[![GitHub Downloads](https://img.shields.io/github/downloads/openkoi-ai/openkoi/total?label=github%20downloads)](https://github.com/openkoi-ai/openkoi/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Docs](https://img.shields.io/badge/docs-openkoi.ai-8B5CF6)](https://openkoi.ai)
+
 A self-iterating AI agent system. Single binary, local-first, model-agnostic.
 
 OpenKoi follows a **Plan-Execute-Evaluate-Refine** cycle — iterating on its own output until results meet your quality standards. It ships as a single static binary with zero runtime dependencies.
+
+![](./peer-loop.svg)
 
 ## Quick Start
 

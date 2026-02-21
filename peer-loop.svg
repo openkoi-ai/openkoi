@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" fill="none">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&amp;display=swap');
+      text { font-family: 'JetBrains Mono', monospace; }
+    </style>
+    <filter id="glow-orange">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glow-cyan">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#52525b"/>
+    </marker>
+    <marker id="arrow-orange" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#ea580c"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="#0a0a0a"/>
+
+  <!-- Title -->
+  <text x="600" y="60" text-anchor="middle" fill="#e4e4e7" font-size="28" font-weight="700">The Plan-Execute-Evaluate-Refine Loop</text>
+  <text x="600" y="90" text-anchor="middle" fill="#71717a" font-size="14">Self-iterating until quality thresholds are met</text>
+
+  <!-- Main loop — 4 stages in a rounded rectangle path -->
+  <!-- Stage boxes -->
+  <!-- Plan -->
+  <rect x="160" y="160" width="200" height="100" rx="10" fill="#141416" stroke="#ea580c" stroke-width="2"/>
+  <text x="260" y="195" text-anchor="middle" fill="#ea580c" font-size="12" font-weight="700" letter-spacing="0.1em">01</text>
+  <text x="260" y="225" text-anchor="middle" fill="#e4e4e7" font-size="22" font-weight="700">Plan</text>
+  <text x="260" y="248" text-anchor="middle" fill="#71717a" font-size="11">Select skills, build strategy</text>
+
+  <!-- Execute -->
+  <rect x="500" y="160" width="200" height="100" rx="10" fill="#141416" stroke="#22d3ee" stroke-width="2"/>
+  <text x="600" y="195" text-anchor="middle" fill="#22d3ee" font-size="12" font-weight="700" letter-spacing="0.1em">02</text>
+  <text x="600" y="225" text-anchor="middle" fill="#e4e4e7" font-size="22" font-weight="700">Execute</text>
+  <text x="600" y="248" text-anchor="middle" fill="#71717a" font-size="11">Run task, delta on iter 2+</text>
+
+  <!-- Evaluate -->
+  <rect x="840" y="160" width="200" height="100" rx="10" fill="#141416" stroke="#a855f7" stroke-width="2"/>
+  <text x="940" y="195" text-anchor="middle" fill="#a855f7" font-size="12" font-weight="700" letter-spacing="0.1em">03</text>
+  <text x="940" y="225" text-anchor="middle" fill="#e4e4e7" font-size="22" font-weight="700">Evaluate</text>
+  <text x="940" y="248" text-anchor="middle" fill="#71717a" font-size="11">Rubric scoring, findings</text>
+
+  <!-- Refine -->
+  <rect x="840" y="370" width="200" height="100" rx="10" fill="#141416" stroke="#eab308" stroke-width="2"/>
+  <text x="940" y="405" text-anchor="middle" fill="#eab308" font-size="12" font-weight="700" letter-spacing="0.1em">04</text>
+  <text x="940" y="435" text-anchor="middle" fill="#e4e4e7" font-size="22" font-weight="700">Refine</text>
+  <text x="940" y="458" text-anchor="middle" fill="#71717a" font-size="11">Delta feedback only</text>
+
+  <!-- Arrows -->
+  <!-- Plan -> Execute -->
+  <line x1="360" y1="210" x2="495" y2="210" stroke="#52525b" stroke-width="2" marker-end="url(#arrow)"/>
+  <!-- Execute -> Evaluate -->
+  <line x1="700" y1="210" x2="835" y2="210" stroke="#52525b" stroke-width="2" marker-end="url(#arrow)"/>
+  <!-- Evaluate -> Refine (down) -->
+  <line x1="940" y1="260" x2="940" y2="365" stroke="#52525b" stroke-width="2" marker-end="url(#arrow)"/>
+  <!-- Refine -> Plan (loop back) -->
+  <path d="M 840 420 L 260 420 L 260 265" stroke="#ea580c" stroke-width="2" stroke-dasharray="8 4" marker-end="url(#arrow-orange)"/>
+
+  <!-- Decision box -->
+  <rect x="500" y="370" width="200" height="100" rx="10" fill="#141416" stroke="#27272a" stroke-width="1"/>
+  <text x="600" y="405" text-anchor="middle" fill="#71717a" font-size="11" font-weight="700" letter-spacing="0.1em">DECIDE</text>
+  <text x="600" y="430" text-anchor="middle" fill="#22c55e" font-size="13" font-weight="500">Accept (score >= 0.8)</text>
+  <text x="600" y="450" text-anchor="middle" fill="#eab308" font-size="13" font-weight="500">Continue (improving)</text>
+  <text x="600" y="470" text-anchor="middle" fill="#ef4444" font-size="13" font-weight="500">Abort (regressing/budget)</text>
+
+  <!-- Arrow from Evaluate down to Decide -->
+  <path d="M 870 260 L 870 315 L 705 315 L 705 365" stroke="#52525b" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+
+  <!-- Token savings callouts -->
+  <rect x="160" y="370" width="220" height="100" rx="8" fill="rgba(234,88,12,0.06)" stroke="#27272a" stroke-width="1"/>
+  <text x="270" y="395" text-anchor="middle" fill="#ea580c" font-size="12" font-weight="700">TOKEN SAVINGS</text>
+  <text x="270" y="418" text-anchor="middle" fill="#71717a" font-size="12">Delta feedback: 60-80%</text>
+  <text x="270" y="438" text-anchor="middle" fill="#71717a" font-size="12">Incremental eval: 40-70%</text>
+  <text x="270" y="458" text-anchor="middle" fill="#71717a" font-size="12">Eval skipping: 100%</text>
+
+  <!-- Bottom stats bar -->
+  <line x1="100" y1="530" x2="1100" y2="530" stroke="#27272a" stroke-width="1"/>
+  <text x="200" y="560" text-anchor="middle" fill="#71717a" font-size="12">Default: 3 iterations max</text>
+  <text x="460" y="560" text-anchor="middle" fill="#71717a" font-size="12">Quality threshold: 0.8</text>
+  <text x="720" y="560" text-anchor="middle" fill="#71717a" font-size="12">Budget: 200k tokens</text>
+  <text x="960" y="560" text-anchor="middle" fill="#71717a" font-size="12">Timeout: 5 minutes</text>
+
+  <!-- Branding -->
+  <text x="600" y="600" text-anchor="middle" fill="#52525b" font-size="13">openkoi.ai</text>
+</svg>
