@@ -33,6 +33,7 @@ pub enum AuthInfo {
     ApiKey {
         key: String,
     },
+    #[serde(rename = "oauth")]
     OAuth {
         access_token: String,
         refresh_token: String,
@@ -296,5 +297,28 @@ mod tests {
             deserialized.get("anthropic").unwrap().token(),
             "sk-ant-test"
         );
+    }
+
+    #[test]
+    fn test_auth_info_serde_tag_names() {
+        // Verify the tag names are "api_key" and "oauth" (not "o_auth")
+        let api_key = AuthInfo::api_key("sk-test");
+        let json = serde_json::to_string(&api_key).unwrap();
+        assert!(
+            json.contains(r#""type":"api_key""#),
+            "ApiKey should serialize with type=api_key, got: {json}"
+        );
+
+        let oauth = AuthInfo::oauth("access", "refresh", 0);
+        let json = serde_json::to_string(&oauth).unwrap();
+        assert!(
+            json.contains(r#""type":"oauth""#),
+            "OAuth should serialize with type=oauth, got: {json}"
+        );
+
+        // Verify deserialization from expected JSON
+        let from_json = r#"{"type":"oauth","access_token":"tok","refresh_token":"ref","expires_at":0}"#;
+        let info: AuthInfo = serde_json::from_str(from_json).unwrap();
+        assert_eq!(info.token(), "tok");
     }
 }

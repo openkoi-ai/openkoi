@@ -437,7 +437,7 @@ else
 fi
 
 # 6.4 — Auth file permissions (create and verify)
-echo '{"version":1,"providers":{}}' > "$OPENKOI_HOME/auth.json"
+echo '{"providers":{}}' > "$OPENKOI_HOME/auth.json"
 chmod 600 "$OPENKOI_HOME/auth.json"
 assert_file_mode "Auth file mode 600" "$OPENKOI_HOME/auth.json" "600"
 
@@ -448,6 +448,102 @@ assert_exit "Disconnect all exits 0" 0 "$RC"
 
 # Clean up legacy creds
 rm -rf "$OPENKOI_HOME/credentials"
+
+# ── OAuth auth store tests ─────────────────────────────────────────
+
+# 6.6 — OAuth roundtrip: auth.json with copilot → connect status shows connected
+cat > "$OPENKOI_HOME/auth.json" <<'EOF'
+{"providers":{"copilot":{"type":"oauth","access_token":"gho_e2e_test","refresh_token":"gho_e2e_ref","expires_at":0,"extra":{}}}}
+EOF
+chmod 600 "$OPENKOI_HOME/auth.json"
+OUT=$("$BINARY" setup --connect status 2>&1)
+assert_contains "OAuth roundtrip: copilot connected" "$OUT" "[+] GitHub Copilot: connected (subscription login)"
+
+# 6.7 — Expired token detection
+cat > "$OPENKOI_HOME/auth.json" <<'EOF'
+{"providers":{"copilot":{"type":"oauth","access_token":"gho_expired","refresh_token":"gho_ref","expires_at":1000,"extra":{}}}}
+EOF
+chmod 600 "$OPENKOI_HOME/auth.json"
+OUT=$("$BINARY" setup --connect status 2>&1)
+assert_contains "Expired token: shows warning" "$OUT" "[!] GitHub Copilot: token expired"
+
+# 6.8 — API key in auth store
+cat > "$OPENKOI_HOME/auth.json" <<'EOF'
+{"providers":{"anthropic":{"type":"api_key","key":"sk-ant-e2e-test"}}}
+EOF
+chmod 600 "$OPENKOI_HOME/auth.json"
+OUT=$("$BINARY" setup --connect status 2>&1)
+assert_contains "API key in auth store" "$OUT" "[+] anthropic: API key saved"
+
+# 6.9 — Multiple providers in auth store
+cat > "$OPENKOI_HOME/auth.json" <<'EOF'
+{"providers":{"copilot":{"type":"oauth","access_token":"gho_xxx","refresh_token":"gho_ref","expires_at":0,"extra":{}},"chatgpt":{"type":"oauth","access_token":"eyJ_xxx","refresh_token":"v1.xxx","expires_at":0,"extra":{"account_id":"user-e2e"}},"anthropic":{"type":"api_key","key":"sk-ant-e2e"}}}
+EOF
+chmod 600 "$OPENKOI_HOME/auth.json"
+OUT=$("$BINARY" setup --connect status 2>&1)
+assert_contains "Multi-provider: copilot connected" "$OUT" "[+] GitHub Copilot: connected"
+assert_contains "Multi-provider: chatgpt connected" "$OUT" "[+] ChatGPT Plus/Pro: connected"
+assert_contains "Multi-provider: anthropic key saved" "$OUT" "[+] anthropic: API key saved"
+
+# 6.10 — OAuth disconnect removes provider
+cat > "$OPENKOI_HOME/auth.json" <<'EOF'
+{"providers":{"copilot":{"type":"oauth","access_token":"gho_to_remove","refresh_token":"gho_ref","expires_at":0,"extra":{}}}}
+EOF
+chmod 600 "$OPENKOI_HOME/auth.json"
+OUT=$("$BINARY" disconnect copilot 2>&1)
+assert_contains "OAuth disconnect: success message" "$OUT" "disconnected"
+# After disconnect, connect status should show not connected
+OUT=$("$BINARY" setup --connect status 2>&1)
+assert_contains "OAuth disconnect: now not connected" "$OUT" "[-] GitHub Copilot: not connected"
+
+# 6.11 — Disconnect with alias (github-copilot)
+cat > "$OPENKOI_HOME/auth.json" <<'EOF'
+{"providers":{"copilot":{"type":"oauth","access_token":"gho_alias","refresh_token":"gho_ref","expires_at":0,"extra":{}}}}
+EOF
+chmod 600 "$OPENKOI_HOME/auth.json"
+OUT=$("$BINARY" disconnect github-copilot 2>&1)
+assert_contains "Alias disconnect: success" "$OUT" "disconnected"
+
+# 6.12 — Disconnect provider that's not connected
+rm -f "$OPENKOI_HOME/auth.json"
+OUT=$("$BINARY" disconnect copilot 2>&1)
+assert_contains "Disconnect absent: not connected" "$OUT" "is not connected"
+
+# 6.13 — Unknown connect target
+OUT=$("$BINARY" connect bogus-provider 2>&1)
+RC=$?
+assert_contains "Unknown connect target: error" "$OUT" "Unknown target"
+assert_contains "Unknown connect target: shows copilot" "$OUT" "copilot"
+assert_contains "Unknown connect target: shows chatgpt" "$OUT" "chatgpt"
+
+# 6.14 — Disconnect all with OAuth entries populated
+cat > "$OPENKOI_HOME/auth.json" <<'EOF'
+{"providers":{"copilot":{"type":"oauth","access_token":"gho_all","refresh_token":"gho_ref","expires_at":0,"extra":{}},"chatgpt":{"type":"oauth","access_token":"eyJ_all","refresh_token":"v1_all","expires_at":0,"extra":{}}}}
+EOF
+chmod 600 "$OPENKOI_HOME/auth.json"
+OUT=$("$BINARY" disconnect all 2>&1)
+RC=$?
+assert_exit "Disconnect all with OAuth exits 0" 0 "$RC"
+assert_contains "Disconnect all: removed copilot" "$OUT" "copilot"
+assert_contains "Disconnect all: removed chatgpt" "$OUT" "chatgpt"
+# Verify auth.json is now empty of providers
+OUT=$("$BINARY" setup --connect status 2>&1)
+assert_contains "After disconnect all: copilot gone" "$OUT" "[-] GitHub Copilot: not connected"
+assert_contains "After disconnect all: chatgpt gone" "$OUT" "[-] ChatGPT Plus/Pro: not connected"
+
+# 6.15 — AuthStore::save() creates auth.json with correct permissions
+rm -f "$OPENKOI_HOME/auth.json"
+cat > "$OPENKOI_HOME/auth.json" <<'EOF'
+{"providers":{"copilot":{"type":"oauth","access_token":"gho_perm","refresh_token":"gho_ref","expires_at":0,"extra":{}}}}
+EOF
+chmod 600 "$OPENKOI_HOME/auth.json"
+# Disconnect triggers save → should maintain 600 perms
+"$BINARY" disconnect copilot >/dev/null 2>&1
+assert_file_exists "Auth file still exists after save" "$OPENKOI_HOME/auth.json"
+assert_file_mode "Auth file 600 after save" "$OPENKOI_HOME/auth.json" "600"
+
+# Clean up
+rm -f "$OPENKOI_HOME/auth.json"
 
 # ════════════════════════════════════════════════════════════════════
 # Section 7: Provider Discovery
