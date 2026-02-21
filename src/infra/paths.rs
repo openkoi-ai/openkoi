@@ -1,4 +1,8 @@
 // src/infra/paths.rs — XDG-compliant path management
+//
+// All paths respect the OPENKOI_HOME environment variable for isolation.
+// When OPENKOI_HOME is set, all config and data live under that directory.
+// When unset, config uses ~/.openkoi/ and data uses XDG_DATA_HOME/openkoi.
 
 use directories::ProjectDirs;
 use std::path::PathBuf;
@@ -12,14 +16,25 @@ fn project_dirs() -> &'static ProjectDirs {
     })
 }
 
-/// Configuration directory: ~/.openkoi/ (or XDG_CONFIG_HOME/openkoi)
+/// Returns the OPENKOI_HOME override, if set.
+fn openkoi_home() -> Option<PathBuf> {
+    std::env::var_os("OPENKOI_HOME").map(PathBuf::from)
+}
+
+/// Configuration directory: $OPENKOI_HOME/ or ~/.openkoi/ (or XDG_CONFIG_HOME/openkoi)
 pub fn config_dir() -> PathBuf {
-    // Use ~/.openkoi for simplicity (matches design doc)
+    if let Some(home) = openkoi_home() {
+        return home;
+    }
+    // Default: ~/.openkoi for simplicity (matches design doc)
     dirs_home().join(".openkoi")
 }
 
-/// Data directory: ~/.local/share/openkoi/ (or XDG_DATA_HOME/openkoi)
+/// Data directory: $OPENKOI_HOME/data/ or ~/.local/share/openkoi/ (or XDG_DATA_HOME/openkoi)
 pub fn data_dir() -> PathBuf {
+    if let Some(home) = openkoi_home() {
+        return home.join("data");
+    }
     project_dirs().data_local_dir().to_path_buf()
 }
 
