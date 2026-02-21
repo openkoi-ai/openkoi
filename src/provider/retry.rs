@@ -342,7 +342,7 @@ mod tests {
         for attempt in 0..20 {
             let j = deterministic_jitter(attempt, 0.2);
             assert!(
-                j >= 0.8 && j <= 1.2,
+                (0.8..=1.2).contains(&j),
                 "jitter {} out of range for attempt {}",
                 j,
                 attempt
