@@ -5,6 +5,7 @@ pub mod bedrock;
 pub mod fallback;
 pub mod github_copilot;
 pub mod google;
+pub mod model_cache;
 pub mod ollama;
 pub mod openai;
 pub mod openai_compat;

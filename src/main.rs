@@ -116,6 +116,33 @@ async fn run() -> anyhow::Result<()> {
             )
         })?;
 
+    // Validate the model ID against the provider's known models.
+    // Fuzzy-match and auto-correct if possible, warn and fall back on mismatch.
+    let model_ref = match resolver::validate_model(provider.as_ref(), &model_ref.model) {
+        Ok(validated_id) => {
+            if validated_id != model_ref.model {
+                eprintln!(
+                    "  Note: '{}' resolved to '{}'",
+                    model_ref.model, validated_id
+                );
+            }
+            ModelRef::new(&model_ref.provider, validated_id)
+        }
+        Err(err) => {
+            eprintln!("  Warning: {err}");
+            // Fall back to the provider's first model or use the original ID
+            let fallback = provider
+                .models()
+                .first()
+                .map(|m| m.id.clone())
+                .unwrap_or_else(|| model_ref.model.clone());
+            if fallback != model_ref.model {
+                eprintln!("  Falling back to: {}/{}", model_ref.provider, fallback);
+            }
+            ModelRef::new(&model_ref.provider, fallback)
+        }
+    };
+
     // Initialize database (create if needed, run migrations)
     let store = init_store();
 

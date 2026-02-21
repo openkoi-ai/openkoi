@@ -1,4 +1,4 @@
-// src/provider/resolver.rs — Provider auto-discovery and model selection
+// src/provider/resolver.rs — Provider auto-discovery, model probing, and validation
 
 use std::sync::Arc;
 
@@ -44,9 +44,9 @@ pub async fn discover_providers_with_config(config: &Config) -> Vec<Arc<dyn Mode
 
     // GitHub Copilot (token never expires)
     if let Some(info) = auth_store.get("copilot").cloned() {
-        providers.push(Arc::new(GithubCopilotProvider::new(
-            info.token().to_string(),
-        )));
+        let mut copilot = GithubCopilotProvider::new(info.token().to_string());
+        copilot.probe_models().await;
+        providers.push(Arc::new(copilot));
         seen_providers.push("copilot".into());
     }
 
@@ -132,53 +132,63 @@ pub async fn discover_providers_with_config(config: &Config) -> Vec<Arc<dyn Mode
     }
 
     if let Some(key) = resolve_key("GROQ_API_KEY", "groq").await {
-        providers.push(Arc::new(OpenAICompatProvider::new(
+        let mut p = OpenAICompatProvider::new(
             "groq",
             "Groq",
             key,
             "https://api.groq.com/openai/v1".into(),
             "llama-3.3-70b-versatile".into(),
-        )));
+        );
+        p.probe_models().await;
+        providers.push(Arc::new(p));
         seen_providers.push("groq".into());
     }
     if let Some(key) = resolve_key("OPENROUTER_API_KEY", "openrouter").await {
-        providers.push(Arc::new(OpenAICompatProvider::new(
+        let mut p = OpenAICompatProvider::new(
             "openrouter",
             "OpenRouter",
             key,
             "https://openrouter.ai/api/v1".into(),
             "auto".into(),
-        )));
+        );
+        p.probe_models().await;
+        providers.push(Arc::new(p));
         seen_providers.push("openrouter".into());
     }
     if let Some(key) = resolve_key("TOGETHER_API_KEY", "together").await {
-        providers.push(Arc::new(OpenAICompatProvider::new(
+        let mut p = OpenAICompatProvider::new(
             "together",
             "Together",
             key,
             "https://api.together.xyz/v1".into(),
             "meta-llama/Llama-3.3-70B-Instruct-Turbo".into(),
-        )));
+        );
+        p.probe_models().await;
+        providers.push(Arc::new(p));
         seen_providers.push("together".into());
     }
     if let Some(key) = resolve_key("DEEPSEEK_API_KEY", "deepseek").await {
-        providers.push(Arc::new(OpenAICompatProvider::new(
+        let mut p = OpenAICompatProvider::new(
             "deepseek",
             "DeepSeek",
             key,
             "https://api.deepseek.com/v1".into(),
             "deepseek-chat".into(),
-        )));
+        );
+        p.probe_models().await;
+        providers.push(Arc::new(p));
         seen_providers.push("deepseek".into());
     }
     if let Some(key) = resolve_key("XAI_API_KEY", "xai").await {
-        providers.push(Arc::new(OpenAICompatProvider::new(
+        let mut p = OpenAICompatProvider::new(
             "xai",
             "xAI",
             key,
             "https://api.x.ai/v1".into(),
             "grok-3".into(),
-        )));
+        );
+        p.probe_models().await;
+        providers.push(Arc::new(p));
         seen_providers.push("xai".into());
     }
 
@@ -191,13 +201,15 @@ pub async fn discover_providers_with_config(config: &Config) -> Vec<Arc<dyn Mode
         };
 
         if let Some(key) = qwen_key {
-            providers.push(Arc::new(OpenAICompatProvider::new(
+            let mut p = OpenAICompatProvider::new(
                 "qwen",
                 "Qwen",
                 key,
                 "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
                 "qwen2.5-coder-32b".into(),
-            )));
+            );
+            p.probe_models().await;
+            providers.push(Arc::new(p));
             seen_providers.push("qwen".into());
         }
     }
@@ -221,13 +233,15 @@ pub async fn discover_providers_with_config(config: &Config) -> Vec<Arc<dyn Mode
 
         let display_name = cfg.display_name.clone().unwrap_or_else(|| id.clone());
 
-        providers.push(Arc::new(OpenAICompatProvider::new(
+        let mut p = OpenAICompatProvider::new(
             id.clone(),
             display_name,
             key,
             cfg.base_url.clone(),
             cfg.default_model.clone(),
-        )));
+        );
+        p.probe_models().await;
+        providers.push(Arc::new(p));
         seen_providers.push(id.clone());
     }
 
@@ -236,13 +250,15 @@ pub async fn discover_providers_with_config(config: &Config) -> Vec<Arc<dyn Mode
     if !seen_providers.contains(&"custom".to_string()) {
         if let Some(key) = load_saved_key("custom").await {
             if let Some(url) = load_saved_custom_url().await {
-                providers.push(Arc::new(OpenAICompatProvider::new(
+                let mut p = OpenAICompatProvider::new(
                     "custom",
                     "Custom",
                     key,
                     url,
                     "auto".into(),
-                )));
+                );
+                p.probe_models().await;
+                providers.push(Arc::new(p));
                 seen_providers.push("custom".into());
             }
         }
@@ -319,4 +335,259 @@ pub fn find_provider<'a>(
     provider_id: &str,
 ) -> Option<&'a Arc<dyn ModelProvider>> {
     providers.iter().find(|p| p.id() == provider_id)
+}
+
+/// Validate that a model ID exists in the provider's model list.
+///
+/// Returns `Ok(model_id)` if the model is found (exact match).
+/// Returns `Err(ValidationError)` with fuzzy suggestions if not found.
+pub fn validate_model(
+    provider: &dyn ModelProvider,
+    model_id: &str,
+) -> Result<String, ModelValidationError> {
+    let models = provider.models();
+
+    // Exact match
+    if models.iter().any(|m| m.id == model_id) {
+        return Ok(model_id.to_string());
+    }
+
+    // Case-insensitive match
+    if let Some(m) = models.iter().find(|m| m.id.eq_ignore_ascii_case(model_id)) {
+        tracing::info!(
+            "Model '{}' matched case-insensitively as '{}'",
+            model_id,
+            m.id
+        );
+        return Ok(m.id.clone());
+    }
+
+    // Substring / prefix match (e.g., "gpt-4o" matching "gpt-4o-2024-11-20")
+    let prefix_matches: Vec<&str> = models
+        .iter()
+        .filter(|m| m.id.starts_with(model_id) || model_id.starts_with(&m.id))
+        .map(|m| m.id.as_str())
+        .collect();
+    if prefix_matches.len() == 1 {
+        tracing::info!(
+            "Model '{}' matched by prefix as '{}'",
+            model_id,
+            prefix_matches[0]
+        );
+        return Ok(prefix_matches[0].to_string());
+    }
+
+    // Fuzzy match using Jaro-Winkler similarity
+    let mut scored: Vec<(&str, f64)> = models
+        .iter()
+        .map(|m| {
+            let score = strsim::jaro_winkler(&m.id, model_id);
+            (m.id.as_str(), score)
+        })
+        .filter(|(_, score)| *score > 0.7) // Only suggest reasonably close matches
+        .collect();
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    scored.truncate(5); // Top 5 suggestions
+
+    let suggestions: Vec<String> = scored.iter().map(|(id, _)| id.to_string()).collect();
+
+    Err(ModelValidationError {
+        provider_id: provider.id().to_string(),
+        provider_name: provider.name().to_string(),
+        model_id: model_id.to_string(),
+        suggestions,
+        available_count: models.len(),
+    })
+}
+
+/// Error returned when a model ID doesn't match any known model.
+#[derive(Debug)]
+pub struct ModelValidationError {
+    pub provider_id: String,
+    pub provider_name: String,
+    pub model_id: String,
+    pub suggestions: Vec<String>,
+    pub available_count: usize,
+}
+
+impl std::fmt::Display for ModelValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Model '{}' not found in {} ({} models available)",
+            self.model_id, self.provider_name, self.available_count
+        )?;
+        if !self.suggestions.is_empty() {
+            write!(f, ". Did you mean: {}?", self.suggestions.join(", "))?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::ModelInfo;
+    use crate::infra::errors::OpenKoiError;
+    use async_trait::async_trait;
+    use futures::Stream;
+    use std::pin::Pin;
+
+    /// Minimal mock provider for testing validation logic.
+    struct MockProvider {
+        id: String,
+        name: String,
+        models: Vec<ModelInfo>,
+    }
+
+    impl MockProvider {
+        fn new(id: &str, models: Vec<&str>) -> Self {
+            Self {
+                id: id.into(),
+                name: format!("Mock {id}"),
+                models: models
+                    .into_iter()
+                    .map(|m| ModelInfo {
+                        id: m.into(),
+                        name: m.into(),
+                        context_window: 128_000,
+                        max_output_tokens: 16_384,
+                        supports_tools: true,
+                        supports_streaming: true,
+                        input_price_per_mtok: 0.0,
+                        output_price_per_mtok: 0.0,
+                    })
+                    .collect(),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl ModelProvider for MockProvider {
+        fn id(&self) -> &str {
+            &self.id
+        }
+        fn name(&self) -> &str {
+            &self.name
+        }
+        fn models(&self) -> Vec<ModelInfo> {
+            self.models.clone()
+        }
+        async fn chat(
+            &self,
+            _request: super::super::ChatRequest,
+        ) -> Result<super::super::ChatResponse, OpenKoiError> {
+            unimplemented!()
+        }
+        async fn chat_stream(
+            &self,
+            _request: super::super::ChatRequest,
+        ) -> Result<
+            Pin<
+                Box<
+                    dyn Stream<Item = Result<super::super::ChatChunk, OpenKoiError>>
+                        + Send,
+                >,
+            >,
+            OpenKoiError,
+        > {
+            unimplemented!()
+        }
+        async fn embed(&self, _texts: &[&str]) -> Result<Vec<Vec<f32>>, OpenKoiError> {
+            unimplemented!()
+        }
+    }
+
+    #[test]
+    fn test_validate_exact_match() {
+        let p = MockProvider::new("test", vec!["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"]);
+        assert_eq!(validate_model(&p, "gpt-4o").unwrap(), "gpt-4o");
+        assert_eq!(validate_model(&p, "gpt-4o-mini").unwrap(), "gpt-4o-mini");
+    }
+
+    #[test]
+    fn test_validate_case_insensitive() {
+        let p = MockProvider::new("test", vec!["gpt-4o", "GPT-4o-mini"]);
+        assert_eq!(validate_model(&p, "GPT-4O").unwrap(), "gpt-4o");
+        assert_eq!(validate_model(&p, "gpt-4o-mini").unwrap(), "GPT-4o-mini");
+    }
+
+    #[test]
+    fn test_validate_prefix_match() {
+        let p = MockProvider::new(
+            "test",
+            vec!["gpt-4o-2024-11-20", "gpt-4o-mini-2024-07-18"],
+        );
+        // "gpt-4o-2024-11-20" starts with "gpt-4o" — but there are 2 prefix matches
+        // (both start with gpt-4o), so this should fall through to fuzzy
+        let result = validate_model(&p, "gpt-4o");
+        // Should be an error since two models match
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_single_prefix_match() {
+        let p = MockProvider::new("test", vec!["gpt-4o-2024-11-20", "claude-sonnet-4"]);
+        // Only one model starts with "gpt-4o"
+        assert_eq!(
+            validate_model(&p, "gpt-4o").unwrap(),
+            "gpt-4o-2024-11-20"
+        );
+    }
+
+    #[test]
+    fn test_validate_not_found_with_suggestions() {
+        let p = MockProvider::new("test", vec!["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"]);
+        let err = validate_model(&p, "gpt-4").unwrap_err();
+        assert_eq!(err.model_id, "gpt-4");
+        assert!(!err.suggestions.is_empty());
+        // gpt-4o should be the top suggestion (closest to gpt-4)
+        assert!(err.suggestions.contains(&"gpt-4o".to_string()));
+    }
+
+    #[test]
+    fn test_validate_completely_unknown() {
+        let p = MockProvider::new("test", vec!["gpt-4o", "gpt-4o-mini"]);
+        let err = validate_model(&p, "completely-random-model-xyz").unwrap_err();
+        assert_eq!(err.model_id, "completely-random-model-xyz");
+        // Suggestions may be empty since Jaro-Winkler score would be < 0.7
+    }
+
+    #[test]
+    fn test_validate_empty_provider() {
+        let p = MockProvider::new("test", vec![]);
+        let err = validate_model(&p, "anything").unwrap_err();
+        assert_eq!(err.available_count, 0);
+        assert!(err.suggestions.is_empty());
+    }
+
+    #[test]
+    fn test_validation_error_display() {
+        let err = ModelValidationError {
+            provider_id: "copilot".into(),
+            provider_name: "GitHub Copilot".into(),
+            model_id: "gpt-5".into(),
+            suggestions: vec!["gpt-4o".into(), "gpt-4o-mini".into()],
+            available_count: 3,
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("gpt-5"));
+        assert!(msg.contains("GitHub Copilot"));
+        assert!(msg.contains("Did you mean"));
+        assert!(msg.contains("gpt-4o"));
+    }
+
+    #[test]
+    fn test_validation_error_display_no_suggestions() {
+        let err = ModelValidationError {
+            provider_id: "test".into(),
+            provider_name: "Test".into(),
+            model_id: "xyz".into(),
+            suggestions: vec![],
+            available_count: 0,
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("xyz"));
+        assert!(!msg.contains("Did you mean"));
+    }
 }

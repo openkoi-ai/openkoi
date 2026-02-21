@@ -83,6 +83,11 @@ pub fn credentials_dir() -> PathBuf {
     config_dir().join("credentials")
 }
 
+/// Cache directory: ~/.openkoi/cache/
+pub fn cache_dir() -> PathBuf {
+    config_dir().join("cache")
+}
+
 /// Soul file path (user-level)
 pub fn soul_path() -> PathBuf {
     config_dir().join("SOUL.md")
@@ -98,6 +103,7 @@ pub async fn ensure_dirs() -> anyhow::Result<()> {
     let dirs = [
         config_dir(),
         credentials_dir(),
+        cache_dir(),
         data_dir(),
         sessions_dir(),
         skills_dir(),

@@ -15,6 +15,7 @@ use super::{
     ChatChunk, ChatRequest, ChatResponse, ModelInfo, ModelProvider, Role, StopReason, TokenUsage,
     ToolCallDelta,
 };
+use super::model_cache;
 use crate::auth::oauth;
 use crate::auth::AuthInfo;
 use crate::infra::errors::OpenKoiError;
@@ -25,10 +26,52 @@ pub const GITHUB_CLIENT_ID: &str = "Ov23liEs4iRqyaV7Fa5k";
 /// Default API endpoint.
 const API_BASE: &str = "https://api.githubcopilot.com";
 
+/// Probe timeout for /models endpoint.
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 pub struct GithubCopilotProvider {
     token: String,
     client: reqwest::Client,
     api_base: String,
+    /// Dynamically probed models, populated by `probe_models()`.
+    /// Falls back to static defaults if probing fails or hasn't run.
+    probed_models: Option<Vec<ModelInfo>>,
+}
+
+/// Static fallback models (used when probing fails or cache is cold on first install).
+fn static_models() -> Vec<ModelInfo> {
+    vec![
+        ModelInfo {
+            id: "gpt-4o".into(),
+            name: "GPT-4o (Copilot)".into(),
+            context_window: 128_000,
+            max_output_tokens: 16_384,
+            supports_tools: true,
+            supports_streaming: true,
+            input_price_per_mtok: 0.0,
+            output_price_per_mtok: 0.0,
+        },
+        ModelInfo {
+            id: "gpt-4o-mini".into(),
+            name: "GPT-4o mini (Copilot)".into(),
+            context_window: 128_000,
+            max_output_tokens: 4_096,
+            supports_tools: true,
+            supports_streaming: true,
+            input_price_per_mtok: 0.0,
+            output_price_per_mtok: 0.0,
+        },
+        ModelInfo {
+            id: "gpt-3.5-turbo".into(),
+            name: "GPT-3.5 Turbo (Copilot)".into(),
+            context_window: 16_384,
+            max_output_tokens: 4_096,
+            supports_tools: true,
+            supports_streaming: true,
+            input_price_per_mtok: 0.0,
+            output_price_per_mtok: 0.0,
+        },
+    ]
 }
 
 impl GithubCopilotProvider {
@@ -37,6 +80,7 @@ impl GithubCopilotProvider {
             token,
             client: reqwest::Client::new(),
             api_base: API_BASE.into(),
+            probed_models: None,
         }
     }
 
@@ -46,7 +90,140 @@ impl GithubCopilotProvider {
             token,
             client: reqwest::Client::new(),
             api_base,
+            probed_models: None,
         }
+    }
+
+    /// Probe the Copilot `/models` endpoint to discover available models.
+    ///
+    /// Checks disk cache first (1-hour TTL). On cache miss, queries the API
+    /// and caches the result. Falls back to static defaults on any failure.
+    pub async fn probe_models(&mut self) {
+        // Try disk cache first
+        if let Some(cached) = model_cache::load_cached("copilot") {
+            tracing::info!(
+                "Copilot: loaded {} models from cache",
+                cached.len()
+            );
+            self.probed_models = Some(cached);
+            return;
+        }
+
+        // Probe the API
+        match self.fetch_models_from_api().await {
+            Ok(models) if !models.is_empty() => {
+                tracing::info!(
+                    "Copilot: probed {} models from API: [{}]",
+                    models.len(),
+                    models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>().join(", ")
+                );
+                model_cache::save_cache("copilot", &models);
+                self.probed_models = Some(models);
+            }
+            Ok(_) => {
+                tracing::warn!(
+                    "Copilot /models returned empty list, using static fallback"
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Copilot /models probe failed: {e}. Using static fallback."
+                );
+            }
+        }
+    }
+
+    /// Query `GET {api_base}/models` and parse the response.
+    async fn fetch_models_from_api(&self) -> Result<Vec<ModelInfo>, OpenKoiError> {
+        let url = format!("{}/models", self.api_base);
+        let response = self
+            .client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.token))
+            .header(
+                "User-Agent",
+                format!("openkoi/{}", env!("CARGO_PKG_VERSION")),
+            )
+            .timeout(PROBE_TIMEOUT)
+            .send()
+            .await
+            .map_err(|e| OpenKoiError::Provider {
+                provider: "copilot".into(),
+                message: format!("Failed to probe /models: {e}"),
+                retriable: false,
+            })?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(OpenKoiError::Provider {
+                provider: "copilot".into(),
+                message: format!("/models returned HTTP {status}: {body}"),
+                retriable: false,
+            });
+        }
+
+        let body: serde_json::Value =
+            response.json().await.map_err(|e| OpenKoiError::Provider {
+                provider: "copilot".into(),
+                message: format!("Failed to parse /models response: {e}"),
+                retriable: false,
+            })?;
+
+        // The Copilot /models endpoint returns {"data": [{"id": "...", ...}, ...]}
+        // or {"models": [{"id": "...", ...}, ...]} depending on version.
+        let models_array = body["data"]
+            .as_array()
+            .or_else(|| body["models"].as_array());
+
+        let models = match models_array {
+            Some(arr) => arr
+                .iter()
+                .filter_map(|m| {
+                    let id = m["id"].as_str()?.to_string();
+                    // Use model name from API, fall back to id
+                    let name = m["name"]
+                        .as_str()
+                        .or_else(|| m["id"].as_str())
+                        .unwrap_or("Unknown")
+                        .to_string();
+                    let name = format!("{name} (Copilot)");
+
+                    // Extract capabilities if available, with sensible defaults
+                    let context_window = m["context_window"]
+                        .as_u64()
+                        .or_else(|| m["max_input_tokens"].as_u64())
+                        .unwrap_or(128_000) as u32;
+                    let max_output_tokens = m["max_output_tokens"]
+                        .as_u64()
+                        .or_else(|| m["max_tokens"].as_u64())
+                        .unwrap_or(16_384) as u32;
+
+                    // Copilot models support tools and streaming by default
+                    let supports_tools = m["capabilities"]["supports_tools"]
+                        .as_bool()
+                        .unwrap_or(true);
+                    let supports_streaming = m["capabilities"]["supports_streaming"]
+                        .as_bool()
+                        .unwrap_or(true);
+
+                    Some(ModelInfo {
+                        id,
+                        name,
+                        context_window,
+                        max_output_tokens,
+                        supports_tools,
+                        supports_streaming,
+                        // Copilot is included with GitHub subscription
+                        input_price_per_mtok: 0.0,
+                        output_price_per_mtok: 0.0,
+                    })
+                })
+                .collect::<Vec<_>>(),
+            None => Vec::new(),
+        };
+
+        Ok(models)
     }
 
     fn chat_url(&self) -> String {
@@ -120,40 +297,8 @@ impl ModelProvider for GithubCopilotProvider {
     }
 
     fn models(&self) -> Vec<ModelInfo> {
-        // Model IDs sourced from the Copilot /models API endpoint.
-        // Prices are $0 because Copilot is included with GitHub subscription.
-        vec![
-            ModelInfo {
-                id: "gpt-4o".into(),
-                name: "GPT-4o (Copilot)".into(),
-                context_window: 128_000,
-                max_output_tokens: 16_384,
-                supports_tools: true,
-                supports_streaming: true,
-                input_price_per_mtok: 0.0,
-                output_price_per_mtok: 0.0,
-            },
-            ModelInfo {
-                id: "gpt-4o-mini".into(),
-                name: "GPT-4o mini (Copilot)".into(),
-                context_window: 128_000,
-                max_output_tokens: 4_096,
-                supports_tools: true,
-                supports_streaming: true,
-                input_price_per_mtok: 0.0,
-                output_price_per_mtok: 0.0,
-            },
-            ModelInfo {
-                id: "gpt-3.5-turbo".into(),
-                name: "GPT-3.5 Turbo (Copilot)".into(),
-                context_window: 16_384,
-                max_output_tokens: 4_096,
-                supports_tools: true,
-                supports_streaming: true,
-                input_price_per_mtok: 0.0,
-                output_price_per_mtok: 0.0,
-            },
-        ]
+        // Return probed models if available, otherwise fall back to static list
+        self.probed_models.clone().unwrap_or_else(static_models)
     }
 
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, OpenKoiError> {
