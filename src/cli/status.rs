@@ -223,10 +223,8 @@ fn count_dir_entries(path: &std::path::Path) -> usize {
 pub async fn show_live_status() -> anyhow::Result<()> {
     use crate::core::state;
 
-    println!("openkoi live status  (Ctrl-C to exit)");
-    println!();
-
-    let mut last_task_id = String::new();
+    eprintln!("openkoi live status  (Ctrl-C to exit)");
+    eprintln!();
 
     loop {
         // Clear screen (move cursor to top-left and clear)
@@ -259,11 +257,6 @@ pub async fn show_live_status() -> anyhow::Result<()> {
                 eprintln!("  Decision:   {}", task.last_decision);
                 if !task.tool_calls.is_empty() {
                     eprintln!("  Tools:      {}", task.tool_calls.join(", "));
-                }
-
-                // Track if the task changed (completed and a new one started)
-                if task.task_id != last_task_id {
-                    last_task_id = task.task_id.clone();
                 }
             }
             None => {
@@ -307,15 +300,12 @@ fn render_progress_bar(current: u8, max: u8, width: usize) -> String {
     if max == 0 {
         return format!("[{}]", " ".repeat(width));
     }
-    let filled = ((current as usize) * width) / (max as usize);
+    let clamped = (current as usize).min(max as usize);
+    let filled = (clamped * width) / (max as usize);
     let empty = width.saturating_sub(filled);
     format!("[{}{}]", "=".repeat(filled), " ".repeat(empty))
 }
 
 fn truncate_str(s: &str, max: usize) -> &str {
-    if s.len() <= max {
-        s
-    } else {
-        &s[..max]
-    }
+    crate::util::truncate_str(s, max)
 }

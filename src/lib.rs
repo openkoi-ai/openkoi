@@ -17,3 +17,4 @@ pub mod security;
 pub mod skills;
 pub mod soul;
 pub mod tui;
+pub mod util;

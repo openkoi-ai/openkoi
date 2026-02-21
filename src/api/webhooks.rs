@@ -3,9 +3,20 @@
 // Fires HTTP POST requests to configured URLs when tasks complete,
 // fail, or trigger budget warnings. Non-blocking (spawns a tokio task).
 
+use std::sync::LazyLock;
+
 use serde::Serialize;
 
 use crate::infra::config::WebhookConfig;
+
+/// Shared HTTP client for webhook delivery (avoids creating a new client per call).
+static WEBHOOK_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .user_agent(format!("openkoi/{}", env!("CARGO_PKG_VERSION")))
+        .build()
+        .expect("failed to build webhook HTTP client")
+});
 
 /// Lifecycle event that can trigger a webhook.
 #[derive(Debug, Clone)]
@@ -120,16 +131,10 @@ fn build_payload(event: &WebhookEvent) -> WebhookPayload {
 
 /// Send the webhook POST request.
 async fn send_webhook(url: &str, payload: &WebhookPayload) -> anyhow::Result<()> {
-    let client = reqwest::Client::new();
-    let resp = client
+    let resp = WEBHOOK_CLIENT
         .post(url)
         .header("content-type", "application/json")
-        .header(
-            "user-agent",
-            format!("openkoi/{}", env!("CARGO_PKG_VERSION")),
-        )
         .json(payload)
-        .timeout(std::time::Duration::from_secs(10))
         .send()
         .await?;
 
@@ -139,7 +144,7 @@ async fn send_webhook(url: &str, payload: &WebhookPayload) -> anyhow::Result<()>
         tracing::warn!(
             "Webhook returned HTTP {}: {}",
             status.as_u16(),
-            truncate(&body, 200)
+            crate::util::truncate_str(&body, 200)
         );
     } else {
         tracing::debug!("Webhook delivered to {} (HTTP {})", url, status.as_u16());
@@ -148,13 +153,13 @@ async fn send_webhook(url: &str, payload: &WebhookPayload) -> anyhow::Result<()>
     Ok(())
 }
 
-/// Truncate a string for logging.
+/// Truncate a string for logging (UTF-8 safe).
+///
+/// Deprecated: prefer `crate::util::truncate_str`. Kept as a local alias
+/// for use in tests.
+#[cfg(test)]
 fn truncate(s: &str, max_len: usize) -> &str {
-    if s.len() <= max_len {
-        s
-    } else {
-        &s[..max_len]
-    }
+    crate::util::truncate_str(s, max_len)
 }
 
 #[cfg(test)]

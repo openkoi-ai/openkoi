@@ -114,7 +114,7 @@ impl MessagingAdapter for TelegramAdapter {
         let body = serde_json::json!({
             "chat_id": target,
             "text": content,
-            "parse_mode": "Markdown",
+            "parse_mode": "MarkdownV2",
         });
 
         let resp: TelegramResponse<SendMessageResp> = self
@@ -140,25 +140,25 @@ impl MessagingAdapter for TelegramAdapter {
     }
 
     async fn send_rich(&self, target: &str, msg: &RichMessage) -> anyhow::Result<String> {
-        // Build Markdown-formatted text
+        // Build MarkdownV2-formatted text
         let mut parts = Vec::new();
 
         if let Some(ref title) = msg.title {
-            parts.push(format!("*{}*", title));
+            parts.push(format!("*{}*", escape_markdown_v2(title)));
         }
 
         if !msg.fields.is_empty() {
             let field_line = msg
                 .fields
                 .iter()
-                .map(|(k, v)| format!("{}: {}", k, v))
+                .map(|(k, v)| format!("{}: {}", escape_markdown_v2(k), escape_markdown_v2(v)))
                 .collect::<Vec<_>>()
-                .join(" | ");
+                .join(" \\| ");
             parts.push(field_line);
         }
 
         if !msg.text.is_empty() {
-            parts.push(msg.text.clone());
+            parts.push(escape_markdown_v2(&msg.text));
         }
 
         let text = parts.join("\n");
@@ -166,7 +166,7 @@ impl MessagingAdapter for TelegramAdapter {
         let mut body = serde_json::json!({
             "chat_id": target,
             "text": text,
-            "parse_mode": "Markdown",
+            "parse_mode": "MarkdownV2",
         });
 
         // Thread support: reply to the triggering message
@@ -251,6 +251,41 @@ impl MessagingAdapter for TelegramAdapter {
         // Telegram Bot API doesn't support message search.
         anyhow::bail!("Telegram Bot API does not support message search")
     }
+}
+
+/// Escape special characters for Telegram MarkdownV2.
+///
+/// Per the Bot API docs, the following characters must be escaped with a
+/// preceding backslash: `_`, `*`, `[`, `]`, `(`, `)`, `~`, `` ` ``, `>`,
+/// `#`, `+`, `-`, `=`, `|`, `{`, `}`, `.`, `!`.
+fn escape_markdown_v2(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        if matches!(
+            ch,
+            '_' | '*'
+                | '['
+                | ']'
+                | '('
+                | ')'
+                | '~'
+                | '`'
+                | '>'
+                | '#'
+                | '+'
+                | '-'
+                | '='
+                | '|'
+                | '{'
+                | '}'
+                | '.'
+                | '!'
+        ) {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out
 }
 
 // -- Integration trait --

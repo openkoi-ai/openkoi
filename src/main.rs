@@ -233,6 +233,7 @@ async fn run() -> anyhow::Result<()> {
                 all_tools,
                 mcp,
                 integrations.as_ref(),
+                cli.quiet,
             )
             .await;
             mcp_manager.shutdown_all().await;

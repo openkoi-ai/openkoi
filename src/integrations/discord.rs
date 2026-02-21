@@ -160,10 +160,19 @@ impl MessagingAdapter for DiscordAdapter {
             embed["fields"] = serde_json::json!(fields);
         }
 
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "content": "",
             "embeds": [embed],
         });
+
+        // Thread support: if thread_id is set, use message_reference to reply
+        // in the thread. Discord threads are just channels, so we post to the
+        // thread channel. For forum/thread replies, set message_reference.
+        if let Some(ref thread_id) = msg.thread_id {
+            body["message_reference"] = serde_json::json!({
+                "message_id": thread_id,
+            });
+        }
 
         let resp: CreateMessageResp = self
             .api_post(&format!("/channels/{target}/messages"), &body)

@@ -80,10 +80,15 @@ impl LiveState {
 
     fn to_task_state(&self) -> TaskState {
         let elapsed = (Utc::now() - self.started_at).num_seconds().max(0) as u64;
+        let status = match self.phase.as_str() {
+            "complete" => "complete",
+            "plan" | "pending" => "pending",
+            _ => "running",
+        };
         TaskState {
             task_id: self.task_id.clone(),
             description: self.description.clone(),
-            status: self.phase.clone(),
+            status: status.to_string(),
             iteration: self.iteration,
             max_iterations: self.max_iterations,
             current_score: self.current_score,
@@ -191,7 +196,9 @@ pub fn state_writer_progress(
 
             // Write current-task.json
             let task_state = state.to_task_state();
-            let _ = write_state_file(&task_state);
+            if let Err(e) = write_state_file(&task_state) {
+                tracing::debug!("Failed to write current-task.json: {}", e);
+            }
         }
     }
 }
@@ -218,6 +225,7 @@ fn write_state_file(state: &TaskState) -> anyhow::Result<()> {
     let mut f = std::fs::File::create(&tmp)?;
     f.write_all(json.as_bytes())?;
     f.flush()?;
+    f.sync_all()?;
     std::fs::rename(&tmp, &dst)?;
     Ok(())
 }

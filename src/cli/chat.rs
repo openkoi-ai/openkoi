@@ -49,6 +49,7 @@ pub async fn run_chat(
     mcp_tools: Vec<ToolDef>,
     mcp_manager: Option<&mut McpManager>,
     integrations: Option<&IntegrationRegistry>,
+    quiet: bool,
 ) -> anyhow::Result<()> {
     let memory_count = store
         .as_ref()
@@ -152,8 +153,11 @@ pub async fn run_chat(
             store.clone(),
         );
         {
-            let inner: Option<Box<dyn Fn(crate::core::types::ProgressEvent) + Send>> =
-                Some(Box::new(super::progress::terminal_progress()));
+            let inner: Option<Box<dyn Fn(crate::core::types::ProgressEvent) + Send>> = if !quiet {
+                Some(Box::new(super::progress::terminal_progress()))
+            } else {
+                None
+            };
             let progress = crate::core::state::state_writer_progress(
                 task.id.clone(),
                 task.description.clone(),
@@ -311,7 +315,11 @@ fn handle_slash_command(
                 eprintln!("  Session history ({} task(s)):", state.history.len());
                 for (i, entry) in state.history.iter().enumerate() {
                     let truncated = if entry.input.len() > 60 {
-                        format!("{}...", &entry.input[..57])
+                        let mut end = 57;
+                        while end > 0 && !entry.input.is_char_boundary(end) {
+                            end -= 1;
+                        }
+                        format!("{}...", &entry.input[..end])
                     } else {
                         entry.input.clone()
                     };

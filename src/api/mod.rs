@@ -13,7 +13,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 
 use crate::core::state::{self, TaskHistoryEntry, TaskState};
 use crate::infra::config::ApiConfig;
@@ -33,6 +33,9 @@ pub struct ApiState {
 /// Request body for creating a task.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskRequest {
+    /// Server-assigned task ID (populated on enqueue, not from client JSON).
+    #[serde(default)]
+    pub task_id: Option<String>,
     pub description: String,
     #[serde(default)]
     pub category: Option<String>,
@@ -77,9 +80,14 @@ pub struct ErrorResponse {
 /// Build the axum router with all API routes.
 pub fn build_router(state: ApiState) -> Router {
     let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+        .allow_origin([
+            "http://localhost:3000".parse().unwrap(),
+            "http://localhost:5173".parse().unwrap(),
+            "http://127.0.0.1:3000".parse().unwrap(),
+            "http://127.0.0.1:5173".parse().unwrap(),
+        ])
+        .allow_methods(tower_http::cors::Any)
+        .allow_headers(tower_http::cors::Any);
 
     Router::new()
         .route("/api/v1/tasks", post(create_task))
@@ -94,6 +102,9 @@ pub fn build_router(state: ApiState) -> Router {
 }
 
 /// Start the API server on the given port (blocking — run in a spawned task).
+///
+/// Accepts an optional `shutdown` future for graceful shutdown; if `None`,
+/// the server runs until the task is cancelled/dropped.
 pub async fn start_server(config: &ApiConfig, state: ApiState) -> anyhow::Result<()> {
     let port = config.port;
     let addr = format!("127.0.0.1:{port}");
@@ -102,11 +113,29 @@ pub async fn start_server(config: &ApiConfig, state: ApiState) -> anyhow::Result
 
     tracing::info!("API server listening on http://{addr}");
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    axum::serve(listener, router).await?;
+    axum::serve(listener, router)
+        .with_graceful_shutdown(async {
+            // Shut down when the parent task is cancelled (e.g. daemon Ctrl-C).
+            // The tokio task is aborted on daemon shutdown, which drops this future.
+            std::future::pending::<()>().await;
+        })
+        .await?;
     Ok(())
 }
 
 // ── Auth middleware helper ──────────────────────────────────────────
+
+/// Constant-time byte comparison to prevent timing attacks on token auth.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
 
 /// Verify the bearer token if one is configured.
 fn check_auth(
@@ -124,7 +153,7 @@ fn check_auth(
 
     let token = auth_header.strip_prefix("Bearer ").unwrap_or("");
 
-    if token == expected {
+    if constant_time_eq(token.as_bytes(), expected.as_bytes()) {
         Ok(())
     } else {
         Err((
@@ -159,7 +188,16 @@ async fn create_task(
 
     // Enqueue the task for the daemon to pick up
     if let Ok(mut queue) = state.task_queue.lock() {
-        queue.push(body.clone());
+        let mut req = body.clone();
+        req.task_id = Some(task_id.clone());
+        queue.push(req);
+    } else {
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Internal error: failed to enqueue task".into(),
+            }),
+        ));
     }
 
     Ok((
@@ -426,6 +464,10 @@ mod tests {
         let queue = state.task_queue.lock().unwrap();
         assert_eq!(queue.len(), 1);
         assert_eq!(queue[0].description, "Fix the login bug");
+        assert!(
+            queue[0].task_id.is_some(),
+            "task_id should be assigned on enqueue"
+        );
     }
 
     #[tokio::test]

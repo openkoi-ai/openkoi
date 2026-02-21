@@ -232,23 +232,23 @@ impl MessagingAdapter for SlackAdapter {
             }));
         }
 
-        let mut body = serde_json::json!({
-            "channel": target,
-            "text": msg.text,
-            "blocks": blocks,
-        });
-
-        // Attachment with color sidebar (wraps blocks in an attachment for color)
-        if let Some(ref color) = msg.color {
-            body = serde_json::json!({
+        // Build body: use attachments wrapper for color sidebar, plain blocks otherwise
+        let mut body = if let Some(ref color) = msg.color {
+            serde_json::json!({
                 "channel": target,
                 "text": msg.text,
                 "attachments": [{
                     "color": color,
                     "blocks": blocks,
                 }],
-            });
-        }
+            })
+        } else {
+            serde_json::json!({
+                "channel": target,
+                "text": msg.text,
+                "blocks": blocks,
+            })
+        };
 
         // Thread support
         if let Some(ref thread_ts) = msg.thread_id {

@@ -82,12 +82,16 @@ pub async fn run_daemon(
     let api_config = ctx.config.api.clone().unwrap_or_default();
     let webhook_config = api_config.webhooks.clone();
 
+    // Shared task queue and cancel set — shared between API server and daemon loop.
+    let shared_task_queue: Arc<Mutex<Vec<api::TaskRequest>>> = Arc::new(Mutex::new(Vec::new()));
+    let shared_cancel_requests: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+
     if api_config.enabled {
         let api_state = api::ApiState {
             store: ctx.store.clone(),
             token: api_config.token.clone(),
-            task_queue: Arc::new(Mutex::new(Vec::new())),
-            cancel_requests: Arc::new(Mutex::new(Vec::new())),
+            task_queue: shared_task_queue.clone(),
+            cancel_requests: shared_cancel_requests.clone(),
         };
 
         let api_cfg = api_config.clone();
@@ -109,6 +113,10 @@ pub async fn run_daemon(
     // Consume the immediate first tick
     cron_interval.tick().await;
 
+    // API task queue polling interval (check for new tasks every 2 seconds)
+    let mut queue_interval = tokio::time::interval(Duration::from_secs(2));
+    queue_interval.tick().await;
+
     println!("Daemon running. Press Ctrl+C to stop.");
 
     loop {
@@ -118,6 +126,65 @@ pub async fn run_daemon(
             }
             _ = cron_interval.tick() => {
                 run_scheduled_patterns(&ctx, &registry, &webhook_config).await;
+            }
+            _ = queue_interval.tick() => {
+                // Drain tasks submitted via the HTTP API
+                let tasks: Vec<api::TaskRequest> = {
+                    if let Ok(mut queue) = shared_task_queue.lock() {
+                        queue.drain(..).collect()
+                    } else {
+                        Vec::new()
+                    }
+                };
+                for task_req in tasks {
+                    let task_id = task_req.task_id.clone().unwrap_or_default();
+                    tracing::info!("API task dequeued [{}]: {}", task_id, truncate(&task_req.description, 80));
+                    match execute_daemon_task(&ctx, &registry, &task_req.description, None).await {
+                        Ok(result) => {
+                            tracing::info!(
+                                "API task [{}] completed: {} iter, score {:.2}",
+                                task_id, result.iterations, result.final_score
+                            );
+                            webhooks::fire_webhook(
+                                &webhook_config,
+                                webhooks::WebhookEvent::TaskComplete {
+                                    task_id: task_id.clone(),
+                                    description: task_req.description.clone(),
+                                    iterations: result.iterations,
+                                    final_score: result.final_score,
+                                    cost_usd: result.cost,
+                                    total_tokens: result.total_tokens,
+                                },
+                            );
+                        }
+                        Err(e) => {
+                            tracing::error!("API task [{}] failed: {}", task_id, e);
+                            webhooks::fire_webhook(
+                                &webhook_config,
+                                webhooks::WebhookEvent::TaskFailed {
+                                    task_id: task_id.clone(),
+                                    description: task_req.description.clone(),
+                                    error: format!("{e}"),
+                                },
+                            );
+                        }
+                    }
+                }
+
+                // Check for cancel requests
+                let cancel_ids: Vec<String> = {
+                    if let Ok(mut cancels) = shared_cancel_requests.lock() {
+                        cancels.drain(..).collect()
+                    } else {
+                        Vec::new()
+                    }
+                };
+                for cid in cancel_ids {
+                    tracing::info!("Cancel requested for task [{}] (best-effort)", cid);
+                    // Cancel is best-effort: we log it. The orchestrator checks
+                    // for cancellation at iteration boundaries via the state file.
+                    // Future: wire a CancellationToken into the orchestrator.
+                }
             }
             _ = &mut shutdown => {
                 tracing::info!("Shutdown signal received");
@@ -891,13 +958,9 @@ fn build_watch_configs(config: &Config) -> Vec<WatchConfig> {
     configs
 }
 
-/// Truncate a string for logging.
+/// Truncate a string for logging (UTF-8 safe).
 fn truncate(s: &str, max_len: usize) -> &str {
-    if s.len() <= max_len {
-        s
-    } else {
-        &s[..max_len]
-    }
+    crate::util::truncate_str(s, max_len)
 }
 
 /// Write a PID file for the daemon.

@@ -175,9 +175,5 @@ fn check_soul_evolution(store: &Store) {
 }
 
 fn truncate_task(s: &str, max: usize) -> &str {
-    if s.len() <= max {
-        s
-    } else {
-        &s[..max]
-    }
+    crate::util::truncate_str(s, max)
 }

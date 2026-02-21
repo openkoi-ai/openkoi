@@ -33,11 +33,11 @@ pub struct Cli {
     pub iterate: u8,
 
     /// Quality threshold to accept (0.0-1.0)
-    #[arg(long, default_value = "0.8")]
+    #[arg(short = 'q', long, default_value = "0.8")]
     pub quality: f32,
 
     /// Suppress progress output (only emit final result)
-    #[arg(short, long)]
+    #[arg(long)]
     pub quiet: bool,
 
     /// Read task from stdin
