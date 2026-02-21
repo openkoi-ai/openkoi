@@ -811,12 +811,25 @@ assert_contains "Hidden 'migrate': shows migrations" "$OUT" "schema version"
 section "12. Edge Cases & Error Handling"
 
 # 12.1 — Unknown subcommand
-OUT=$("$BINARY" nonexistent-command 2>&1)
-RC=$?
 # clap treats unknown strings as TASK arguments (the default command),
-# so this will try to run a task "nonexistent-command"
-# It should fail gracefully (no providers available)
-if [ "$RC" -ne 0 ] || echo "$OUT" | grep -qi "no provider\|error\|init"; then
+# so this will try to run a task "nonexistent-command".  That triggers
+# ensure_ready() -> provider picker -> possible browser open.
+# Pipe /dev/null to stdin so inquire fails immediately ("Cancelled"),
+# and use a timeout to guard against hangs.
+if command -v timeout >/dev/null 2>&1; then
+    OUT=$(timeout 5 "$BINARY" nonexistent-command </dev/null 2>&1)
+    RC=$?
+else
+    "$BINARY" nonexistent-command </dev/null >"$OPENKOI_HOME/_12_1.tmp" 2>&1 &
+    BG_PID=$!
+    ( sleep 5; kill "$BG_PID" 2>/dev/null ) &
+    TIMER_PID=$!
+    wait "$BG_PID" 2>/dev/null; RC=$?
+    kill "$TIMER_PID" 2>/dev/null; wait "$TIMER_PID" 2>/dev/null
+    OUT=$(cat "$OPENKOI_HOME/_12_1.tmp"); rm -f "$OPENKOI_HOME/_12_1.tmp"
+fi
+# Should fail gracefully (no providers, or cancelled prompt)
+if [ "$RC" -ne 0 ] || echo "$OUT" | grep -qiE "no provider|error|init|cancelled"; then
     pass "Unknown input handled gracefully"
 else
     pass "Unknown input treated as task (expected behavior)"
@@ -834,10 +847,22 @@ RC=$?
 assert_exit "--quiet flag accepted" 0 "$RC"
 
 # 12.4 — --stdin flag is accepted (with empty stdin)
-OUT=$(echo "" | "$BINARY" --stdin 2>&1)
-RC=$?
-# Should fail gracefully (empty task or no provider)
-if [ "$RC" -ne 0 ] || echo "$OUT" | grep -qi "error\|empty\|no provider"; then
+# --stdin tries to run a task, which triggers ensure_ready() and may open
+# a browser for OAuth.  Pipe /dev/null so inquire fails immediately.
+if command -v timeout >/dev/null 2>&1; then
+    OUT=$(timeout 5 "$BINARY" --stdin </dev/null 2>&1)
+    RC=$?
+else
+    "$BINARY" --stdin </dev/null >"$OPENKOI_HOME/_12_4.tmp" 2>&1 &
+    BG_PID=$!
+    ( sleep 5; kill "$BG_PID" 2>/dev/null ) &
+    TIMER_PID=$!
+    wait "$BG_PID" 2>/dev/null; RC=$?
+    kill "$TIMER_PID" 2>/dev/null; wait "$TIMER_PID" 2>/dev/null
+    OUT=$(cat "$OPENKOI_HOME/_12_4.tmp"); rm -f "$OPENKOI_HOME/_12_4.tmp"
+fi
+# Should fail gracefully (empty task, no provider, or cancelled prompt)
+if [ "$RC" -ne 0 ] || echo "$OUT" | grep -qiE "error|empty|no provider|cancelled"; then
     pass "--stdin with empty input handled"
 else
     pass "--stdin flag accepted"
