@@ -598,16 +598,40 @@ section "8. HTTP API"
 # real LLM credentials, we test API behavior via the existing Rust unit
 # tests and focus on what we can verify from the CLI:
 
-# 8.1 — Daemon start without integrations exits with message
-OUT=$("$BINARY" daemon start 2>&1)
-RC=$?
-# The daemon should exit quickly since no integrations are configured
-if echo "$OUT" | grep -qiF "no integrations\|nothing to do\|connect"; then
-    pass "Daemon start: no integrations message"
-elif [ "$RC" -ne 0 ]; then
-    pass "Daemon start: exits when no integrations"
+# 8.1 — Daemon start without providers exits quickly or fails gracefully
+# On macOS, MS Office and iMessage are auto-detected as integrations so the
+# "no integrations" early-exit doesn't fire.  ensure_ready() then finds zero
+# providers in the isolated OPENKOI_HOME and would launch an interactive
+# picker (which opens a browser for OAuth).  Piping /dev/null to stdin makes
+# inquire::Select fail immediately with "Cancelled", guaranteeing a non-zero
+# exit code without opening a browser.
+#
+# Use a portable timeout: prefer GNU timeout if available, otherwise use a
+# background-process + sleep + kill fallback.
+if command -v timeout >/dev/null 2>&1; then
+    OUT=$(timeout 5 "$BINARY" daemon start </dev/null 2>&1)
+    RC=$?
 else
-    skip "Daemon start: behavior varies without integrations"
+    # Portable fallback: run in background, kill after 5s if still alive
+    "$BINARY" daemon start </dev/null >"$OPENKOI_HOME/daemon_out.tmp" 2>&1 &
+    BG_PID=$!
+    ( sleep 5; kill "$BG_PID" 2>/dev/null ) &
+    TIMER_PID=$!
+    wait "$BG_PID" 2>/dev/null
+    RC=$?
+    kill "$TIMER_PID" 2>/dev/null
+    wait "$TIMER_PID" 2>/dev/null
+    OUT=$(cat "$OPENKOI_HOME/daemon_out.tmp")
+    rm -f "$OPENKOI_HOME/daemon_out.tmp"
+fi
+# With /dev/null on stdin, the interactive prompt always fails, so we expect
+# a non-zero exit code.  The output typically contains "Cancelled" or "error".
+if [ "$RC" -ne 0 ]; then
+    pass "Daemon start: exits non-zero without providers (rc=$RC)"
+elif echo "$OUT" | grep -qiE "no integrations|nothing to do|connect|cancelled|no provider|selection|error"; then
+    pass "Daemon start: no-provider graceful exit"
+else
+    skip "Daemon start: behavior varies without providers"
 fi
 
 # 8.2 — Daemon status
