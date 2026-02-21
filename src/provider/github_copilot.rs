@@ -120,11 +120,13 @@ impl ModelProvider for GithubCopilotProvider {
     }
 
     fn models(&self) -> Vec<ModelInfo> {
+        // Model IDs sourced from the Copilot /models API endpoint.
+        // Prices are $0 because Copilot is included with GitHub subscription.
         vec![
             ModelInfo {
-                id: "claude-sonnet-4.6".into(),
-                name: "Claude Sonnet 4.6 (Copilot)".into(),
-                context_window: 200_000,
+                id: "gpt-4o".into(),
+                name: "GPT-4o (Copilot)".into(),
+                context_window: 128_000,
                 max_output_tokens: 16_384,
                 supports_tools: true,
                 supports_streaming: true,
@@ -132,40 +134,20 @@ impl ModelProvider for GithubCopilotProvider {
                 output_price_per_mtok: 0.0,
             },
             ModelInfo {
-                id: "gpt-5.1-codex".into(),
-                name: "GPT-5.1 Codex (Copilot)".into(),
-                context_window: 200_000,
-                max_output_tokens: 32_768,
+                id: "gpt-4o-mini".into(),
+                name: "GPT-4o mini (Copilot)".into(),
+                context_window: 128_000,
+                max_output_tokens: 4_096,
                 supports_tools: true,
                 supports_streaming: true,
                 input_price_per_mtok: 0.0,
                 output_price_per_mtok: 0.0,
             },
             ModelInfo {
-                id: "gpt-5.2-codex".into(),
-                name: "GPT-5.2 Codex (Copilot)".into(),
-                context_window: 200_000,
-                max_output_tokens: 32_768,
-                supports_tools: true,
-                supports_streaming: true,
-                input_price_per_mtok: 0.0,
-                output_price_per_mtok: 0.0,
-            },
-            ModelInfo {
-                id: "claude-haiku-4.5".into(),
-                name: "Claude Haiku 4.5 (Copilot)".into(),
-                context_window: 200_000,
-                max_output_tokens: 8_192,
-                supports_tools: true,
-                supports_streaming: true,
-                input_price_per_mtok: 0.0,
-                output_price_per_mtok: 0.0,
-            },
-            ModelInfo {
-                id: "gemini-3-flash-preview".into(),
-                name: "Gemini 3 Flash Preview (Copilot)".into(),
-                context_window: 1_000_000,
-                max_output_tokens: 65_536,
+                id: "gpt-3.5-turbo".into(),
+                name: "GPT-3.5 Turbo (Copilot)".into(),
+                context_window: 16_384,
+                max_output_tokens: 4_096,
                 supports_tools: true,
                 supports_streaming: true,
                 input_price_per_mtok: 0.0,

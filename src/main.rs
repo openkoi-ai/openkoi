@@ -266,11 +266,12 @@ async fn init_mcp(config: &Config) -> (Vec<openkoi::provider::ToolDef>, McpManag
 
 /// Build the task description from CLI args and/or stdin.
 ///
-/// Supports three modes:
+/// Supports four modes:
 /// 1. `openkoi "task description"` — positional args only
 /// 2. `openkoi --stdin` — explicit stdin read (entire input is the task)
 /// 3. `cat file.txt | openkoi "review this"` — auto-detected piped stdin
 ///    is appended to positional args as additional context
+/// 4. `openkoi` (no args, interactive terminal) — prompts for task with inquire::Text
 fn build_task_input(cli: &Cli) -> anyhow::Result<String> {
     use std::io::IsTerminal;
 
@@ -299,6 +300,17 @@ fn build_task_input(cli: &Cli) -> anyhow::Result<String> {
         }
     } else if has_args {
         Ok(cli.task.join(" "))
+    } else if std::io::stdin().is_terminal() {
+        // Interactive terminal with no task — prompt the user
+        let task = inquire::Text::new("What would you like me to do?")
+            .with_help_message("Describe your task, or press Esc to cancel")
+            .prompt()
+            .map_err(|_| anyhow::anyhow!("Task input cancelled"))?;
+        let task = task.trim().to_string();
+        if task.is_empty() {
+            anyhow::bail!("No task provided");
+        }
+        Ok(task)
     } else {
         eprintln!("Usage: openkoi <task> or openkoi chat");
         eprintln!("Run openkoi --help for all options.");

@@ -134,7 +134,7 @@ async fn discover_oauth_providers() -> Option<Vec<DiscoveredProvider>> {
 /// Default model for OAuth-based providers.
 pub fn default_model_for_oauth(provider_id: &str) -> String {
     match provider_id {
-        "copilot" => "claude-sonnet-4.6".into(),
+        "copilot" => "gpt-4o".into(),
         "chatgpt" => "gpt-5.1-codex".into(),
         _ => String::new(), // Unknown OAuth provider — skip
     }

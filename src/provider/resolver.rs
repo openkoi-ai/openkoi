@@ -280,7 +280,7 @@ async fn load_saved_custom_url() -> Option<String> {
 /// Pick the best default model from available providers.
 pub fn pick_default_model(providers: &[Arc<dyn ModelProvider>]) -> Option<ModelRef> {
     let priority = [
-        ("copilot", "claude-sonnet-4.6"),
+        ("copilot", "gpt-4o"),
         ("chatgpt", "gpt-5.1-codex"),
         ("anthropic", "claude-sonnet-4-20250514"),
         ("openai", "gpt-4.1"),
