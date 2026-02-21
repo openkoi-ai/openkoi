@@ -226,6 +226,7 @@ impl MessagingAdapter for MsTeamsAdapter {
                     sender,
                     content,
                     timestamp: m.created_date_time.unwrap_or_default(),
+                    thread_id: None,
                 }
             })
             .collect();

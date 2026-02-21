@@ -83,7 +83,10 @@ async fn run() -> anyhow::Result<()> {
             return openkoi::cli::migrate::run_migrate(*status, *rollback).await;
         }
         // ── Active commands ──
-        Some(Commands::Status { verbose, costs }) => {
+        Some(Commands::Status { verbose, costs, live }) => {
+            if *live {
+                return openkoi::cli::status::show_live_status().await;
+            }
             return openkoi::cli::status::show_status(*verbose, *costs).await;
         }
         Some(Commands::Learn { action }) => {
@@ -251,6 +254,7 @@ async fn run() -> anyhow::Result<()> {
                 all_tools,
                 mcp,
                 integrations.as_ref(),
+                cli.quiet,
             )
             .await;
             mcp_manager.shutdown_all().await;

@@ -38,6 +38,8 @@ pub struct Orchestrator {
     evaluator_model_id: String,
     /// Optional persistence store for recording task/cycle/finding data.
     store: Option<Arc<Mutex<Store>>>,
+    /// Optional callback for real-time progress events.
+    on_progress: Option<Box<dyn Fn(ProgressEvent) + Send>>,
 }
 
 /// Everything the orchestrator needs beyond the raw task description.
@@ -86,6 +88,7 @@ impl Orchestrator {
             executor_model_id,
             evaluator_model_id,
             store,
+            on_progress: None,
         }
     }
 
@@ -94,6 +97,20 @@ impl Orchestrator {
     pub fn with_project_dir(mut self, dir: impl Into<std::path::PathBuf>) -> Self {
         self.evaluator = self.evaluator.with_project_dir(dir);
         self
+    }
+
+    /// Set a callback for real-time progress events.
+    /// The callback receives `ProgressEvent` values at key lifecycle transitions.
+    pub fn with_progress(mut self, cb: impl Fn(ProgressEvent) + Send + 'static) -> Self {
+        self.on_progress = Some(Box::new(cb));
+        self
+    }
+
+    /// Fire a progress event if a callback is set.
+    fn emit(&self, event: ProgressEvent) {
+        if let Some(ref cb) = self.on_progress {
+            cb(event);
+        }
     }
 
     /// Persist a single cycle (and its findings) to the store. Non-fatal on error.
@@ -170,9 +187,21 @@ impl Orchestrator {
             }
         }
 
+        // Emit plan ready
+        self.emit(ProgressEvent::PlanReady {
+            steps: plan.steps.len(),
+            estimated_iterations: plan.estimated_iterations,
+        });
+
         // 2. Iteration loop
         for i in 0..self.config.max_iterations {
             let mut cycle = IterationCycle::new(&task, i);
+
+            // Emit iteration start
+            self.emit(ProgressEvent::IterationStart {
+                iteration: i + 1,
+                max_iterations: self.config.max_iterations,
+            });
 
             // Build context (compressed on iteration 2+, with overflow prevention)
             let context = if self.context_window > 0 {
@@ -221,6 +250,15 @@ impl Orchestrator {
                     budget.deduct(&output.usage);
                     self.cost_tracker
                         .record(&self.executor_model_id, &output.usage);
+                    // Emit tool call events
+                    if output.tool_calls_made > 0 {
+                        for file in &output.files_modified {
+                            self.emit(ProgressEvent::ToolCall {
+                                name: format!("edit_file(\"{}\")", file),
+                                iteration: i + 1,
+                            });
+                        }
+                    }
                     cycle.output = Some(output);
                 }
                 Err(e) if e.is_context_overflow() => {
@@ -292,6 +330,9 @@ impl Orchestrator {
                 self.cost_tracker.total_usd,
                 elapsed,
             ) {
+                self.emit(ProgressEvent::SafetyWarning {
+                    message: format!("Safety abort: {}", abort_decision),
+                });
                 cycle.decision = abort_decision;
                 cycles.push(cycle);
                 self.persist_cycle(&task_id, cycles.last().unwrap(), i as usize);
@@ -316,6 +357,14 @@ impl Orchestrator {
             {
                 best_idx = Some(cycles.len());
             }
+
+            // Emit iteration end
+            self.emit(ProgressEvent::IterationEnd {
+                iteration: i + 1,
+                score,
+                decision: cycle.decision.clone(),
+                cost_so_far: self.cost_tracker.total_usd,
+            });
 
             let should_continue = cycle.decision == IterationDecision::Continue;
             cycles.push(cycle);
@@ -362,6 +411,14 @@ impl Orchestrator {
                 );
             }
         }
+
+        // Emit completion
+        self.emit(ProgressEvent::Complete {
+            iterations,
+            total_tokens,
+            cost,
+            final_score,
+        });
 
         Ok(TaskResult {
             output: best.output.clone().unwrap_or(ExecutionOutput {

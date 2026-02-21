@@ -215,3 +215,101 @@ fn count_dir_entries(path: &std::path::Path) -> usize {
         .map(|entries| entries.count())
         .unwrap_or(0)
 }
+
+/// Live-watch the current task by polling `current-task.json`.
+///
+/// Refreshes every second until the task completes or Ctrl-C is pressed.
+/// Also shows the last 5 entries from `task-history.jsonl`.
+pub async fn show_live_status() -> anyhow::Result<()> {
+    use crate::core::state;
+
+    println!("openkoi live status  (Ctrl-C to exit)");
+    println!();
+
+    let mut last_task_id = String::new();
+
+    loop {
+        // Clear screen (move cursor to top-left and clear)
+        eprint!("\x1b[2J\x1b[H");
+
+        eprintln!("openkoi live status  (Ctrl-C to exit)");
+        eprintln!();
+
+        match state::read_current_task() {
+            Some(task) => {
+                let progress_bar = render_progress_bar(task.iteration, task.max_iterations, 30);
+
+                eprintln!("  Task:       {}", truncate_str(&task.description, 60));
+                eprintln!("  ID:         {}", &task.task_id[..8.min(task.task_id.len())]);
+                eprintln!("  Phase:      {}", task.phase);
+                eprintln!(
+                    "  Progress:   {} ({}/{})",
+                    progress_bar, task.iteration, task.max_iterations,
+                );
+                eprintln!("  Score:      {:.2} (best: {:.2})", task.current_score, task.best_score);
+                eprintln!("  Cost:       ${:.4}", task.cost_usd);
+                eprintln!("  Tokens:     {}", task.tokens_used);
+                eprintln!("  Elapsed:    {}s", task.elapsed_secs);
+                eprintln!("  Decision:   {}", task.last_decision);
+                if !task.tool_calls.is_empty() {
+                    eprintln!("  Tools:      {}", task.tool_calls.join(", "));
+                }
+
+                // Track if the task changed (completed and a new one started)
+                if task.task_id != last_task_id {
+                    last_task_id = task.task_id.clone();
+                }
+            }
+            None => {
+                eprintln!("  No task currently running.");
+            }
+        }
+
+        // Recent history
+        let history = state::read_history(5);
+        if !history.is_empty() {
+            eprintln!();
+            eprintln!("  Recent tasks:");
+            for entry in history.iter().rev() {
+                eprintln!(
+                    "    {} | {} iter, ${:.4}, score {:.2}",
+                    truncate_str(&entry.description, 40),
+                    entry.iterations,
+                    entry.cost_usd,
+                    entry.final_score,
+                );
+            }
+        }
+
+        // Sleep 1 second, but break immediately on Ctrl-C
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {}
+            _ = tokio::signal::ctrl_c() => {
+                break;
+            }
+        }
+    }
+
+    // Restore terminal
+    eprintln!();
+    eprintln!("Live status stopped.");
+    Ok(())
+}
+
+/// Render a simple ASCII progress bar: [=====     ] 3/5
+fn render_progress_bar(current: u8, max: u8, width: usize) -> String {
+    if max == 0 {
+        return format!("[{}]", " ".repeat(width));
+    }
+    let filled = ((current as usize) * width) / (max as usize);
+    let empty = width.saturating_sub(filled);
+    format!("[{}{}]", "=".repeat(filled), " ".repeat(empty))
+}
+
+fn truncate_str(s: &str, max: usize) -> &str {
+    if s.len() <= max {
+        s
+    } else {
+        &s[..max]
+    }
+}

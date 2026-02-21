@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::Deserialize;
 
-use crate::integrations::types::{IncomingMessage, Integration, MessagingAdapter};
+use crate::integrations::types::{IncomingMessage, Integration, MessagingAdapter, RichMessage};
 
 const TELEGRAM_API_BASE: &str = "https://api.telegram.org";
 
@@ -139,6 +139,65 @@ impl MessagingAdapter for TelegramAdapter {
             .unwrap_or_default())
     }
 
+    async fn send_rich(&self, target: &str, msg: &RichMessage) -> anyhow::Result<String> {
+        // Build Markdown-formatted text
+        let mut parts = Vec::new();
+
+        if let Some(ref title) = msg.title {
+            parts.push(format!("*{}*", title));
+        }
+
+        if !msg.fields.is_empty() {
+            let field_line = msg
+                .fields
+                .iter()
+                .map(|(k, v)| format!("{}: {}", k, v))
+                .collect::<Vec<_>>()
+                .join(" | ");
+            parts.push(field_line);
+        }
+
+        if !msg.text.is_empty() {
+            parts.push(msg.text.clone());
+        }
+
+        let text = parts.join("\n");
+
+        let mut body = serde_json::json!({
+            "chat_id": target,
+            "text": text,
+            "parse_mode": "Markdown",
+        });
+
+        // Thread support: reply to the triggering message
+        if let Some(ref thread_id) = msg.thread_id {
+            if let Ok(msg_id) = thread_id.parse::<i64>() {
+                body["reply_to_message_id"] = serde_json::json!(msg_id);
+            }
+        }
+
+        let resp: TelegramResponse<SendMessageResp> = self
+            .client
+            .post(self.api_url("sendMessage"))
+            .json(&body)
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        if !resp.ok {
+            anyhow::bail!(
+                "Telegram send_rich failed: {}",
+                resp.description.unwrap_or_else(|| "unknown".into())
+            );
+        }
+
+        Ok(resp
+            .result
+            .map(|r| r.message_id.to_string())
+            .unwrap_or_default())
+    }
+
     async fn history(&self, _channel: &str, limit: u32) -> anyhow::Result<Vec<IncomingMessage>> {
         // Telegram Bot API doesn't provide direct history access.
         // We use getUpdates to get recent messages (polling-based).
@@ -180,6 +239,7 @@ impl MessagingAdapter for TelegramAdapter {
                     sender,
                     content: m.text.unwrap_or_default(),
                     timestamp: m.date.to_string(),
+                    thread_id: None,
                 }
             })
             .collect();

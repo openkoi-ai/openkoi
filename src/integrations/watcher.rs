@@ -21,6 +21,8 @@ pub struct WatchEvent {
     pub payload: String,
     /// Channel/document/source ID
     pub source: String,
+    /// Thread identifier for reply-in-thread (Slack thread_ts, Telegram message_id, etc.)
+    pub thread_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -194,6 +196,7 @@ async fn poll_integration(
                             event_type,
                             payload,
                             source: msg.channel,
+                            thread_id: msg.thread_id,
                         };
 
                         if tx.send(event).await.is_err() {
@@ -241,6 +244,7 @@ async fn poll_integration(
                         event_type: WatchEventType::DocumentUpdated,
                         payload: doc.content,
                         source: doc.id,
+                        thread_id: None,
                     };
 
                     if tx.send(event).await.is_err() {

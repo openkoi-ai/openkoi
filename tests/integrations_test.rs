@@ -23,6 +23,7 @@ impl MessagingAdapter for MockMessagingAdapter {
             sender: "user1".into(),
             content: "Hello from mock".into(),
             timestamp: "2026-01-01T00:00:00Z".into(),
+            thread_id: None,
         }])
     }
 
@@ -33,6 +34,7 @@ impl MessagingAdapter for MockMessagingAdapter {
             sender: "user2".into(),
             content: format!("Found: {query}"),
             timestamp: "2026-01-01T00:00:00Z".into(),
+            thread_id: None,
         }])
     }
 }

@@ -6,15 +6,19 @@
 // the orchestrator and delivers the result back via the same integration.
 // Approved patterns with cron schedules are evaluated every 60 seconds.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 
+use crate::api;
+use crate::api::webhooks;
 use crate::core::orchestrator::{Orchestrator, SessionContext};
 use crate::core::safety::SafetyChecker;
-use crate::core::types::{IterationEngineConfig, TaskInput};
+use crate::core::types::{IterationEngineConfig, TaskInput, TaskResult};
 use crate::infra::config::Config;
 use crate::integrations::registry::IntegrationRegistry;
+use crate::integrations::types::RichMessage;
 use crate::integrations::watcher::{WatchConfig, WatchEvent, WatchEventType, WatcherManager};
 use crate::learner::skill_selector::SkillSelector;
 use crate::memory::recall::{self, HistoryRecall};
@@ -74,6 +78,28 @@ pub async fn run_daemon(
 
     let mut event_rx = watcher_manager.start(registry.clone());
 
+    // ── Start the HTTP API server if enabled ────────────────────────
+    let api_config = ctx.config.api.clone().unwrap_or_default();
+    let webhook_config = api_config.webhooks.clone();
+
+    if api_config.enabled {
+        let api_state = api::ApiState {
+            store: ctx.store.clone(),
+            token: api_config.token.clone(),
+            task_queue: Arc::new(Mutex::new(Vec::new())),
+            cancel_requests: Arc::new(Mutex::new(Vec::new())),
+        };
+
+        let api_cfg = api_config.clone();
+        tokio::spawn(async move {
+            if let Err(e) = api::start_server(&api_cfg, api_state).await {
+                tracing::error!("API server failed: {}", e);
+            }
+        });
+
+        tracing::info!("API server started on port {}", api_config.port);
+    }
+
     // Set up signal handler for graceful shutdown
     let shutdown = tokio::signal::ctrl_c();
     tokio::pin!(shutdown);
@@ -88,10 +114,10 @@ pub async fn run_daemon(
     loop {
         tokio::select! {
             Some(event) = event_rx.recv() => {
-                handle_watch_event(&event, &ctx, &registry, auto_execute).await;
+                handle_watch_event(&event, &ctx, registry.clone(), auto_execute, &webhook_config).await;
             }
             _ = cron_interval.tick() => {
-                run_scheduled_patterns(&ctx, &registry).await;
+                run_scheduled_patterns(&ctx, &registry, &webhook_config).await;
             }
             _ = &mut shutdown => {
                 tracing::info!("Shutdown signal received");
@@ -256,9 +282,12 @@ fn format_help() -> String {
 async fn handle_watch_event(
     event: &WatchEvent,
     ctx: &DaemonContext,
-    registry: &IntegrationRegistry,
+    registry: Arc<IntegrationRegistry>,
     auto_execute: bool,
+    webhook_config: &crate::infra::config::WebhookConfig,
 ) {
+    let tid = event.thread_id.as_deref();
+
     match event.event_type {
         WatchEventType::NewMessage => {
             tracing::info!(
@@ -287,16 +316,36 @@ async fn handle_watch_event(
 
             match command {
                 DaemonCommand::Help => {
-                    deliver_result(registry, &event.integration_id, &event.source, &format_help())
-                        .await;
+                    deliver_result(
+                        &registry,
+                        &event.integration_id,
+                        &event.source,
+                        &format_help(),
+                        tid,
+                    )
+                    .await;
                 }
                 DaemonCommand::Status => {
                     let report = format_status(ctx);
-                    deliver_result(registry, &event.integration_id, &event.source, &report).await;
+                    deliver_result(
+                        &registry,
+                        &event.integration_id,
+                        &event.source,
+                        &report,
+                        tid,
+                    )
+                    .await;
                 }
                 DaemonCommand::Cost => {
                     let report = format_cost(ctx);
-                    deliver_result(registry, &event.integration_id, &event.source, &report).await;
+                    deliver_result(
+                        &registry,
+                        &event.integration_id,
+                        &event.source,
+                        &report,
+                        tid,
+                    )
+                    .await;
                 }
                 DaemonCommand::Run(task_description) => {
                     if !auto_execute {
@@ -304,10 +353,11 @@ async fn handle_watch_event(
                             "Auto-execute disabled; skipping task execution for mention"
                         );
                         deliver_result(
-                            registry,
+                            &registry,
                             &event.integration_id,
                             &event.source,
                             "Auto-execute is disabled. Enable it in your config to run tasks via mentions.",
+                            tid,
                         )
                         .await;
                         return;
@@ -316,37 +366,98 @@ async fn handle_watch_event(
                     if task_description.trim().is_empty() {
                         tracing::debug!("Empty task description; sending help");
                         deliver_result(
-                            registry,
+                            &registry,
                             &event.integration_id,
                             &event.source,
                             &format_help(),
+                            tid,
                         )
                         .await;
                         return;
                     }
 
-                    let result = execute_daemon_task(ctx, registry, &task_description).await;
+                    let notify = NotifyTarget {
+                        registry: registry.clone(),
+                        integration_id: event.integration_id.clone(),
+                        channel: event.source.clone(),
+                        thread_id: tid.map(String::from),
+                    };
+
+                    let result = execute_daemon_task(
+                        ctx,
+                        &registry,
+                        &task_description,
+                        Some(notify),
+                    )
+                    .await;
 
                     match result {
-                        Ok(output) => {
-                            deliver_result(
-                                registry,
+                        Ok(task_result) => {
+                            // Deliver a rich result message
+                            let mut msg = RichMessage::new(&task_result.output.content)
+                                .with_title("Task Complete")
+                                .with_color("#36a64f")
+                                .with_field("Score", format!("{:.2}", task_result.final_score))
+                                .with_field("Cost", format!("${:.2}", task_result.cost))
+                                .with_field(
+                                    "Iterations",
+                                    format!("{}", task_result.iterations),
+                                );
+
+                            if let Some(t) = tid {
+                                msg = msg.in_thread(t.to_string());
+                            }
+
+                            deliver_rich_result(
+                                &registry,
                                 &event.integration_id,
                                 &event.source,
-                                &output,
+                                &msg,
                             )
                             .await;
+
+                            // Fire task.complete webhook
+                            webhooks::fire_webhook(
+                                webhook_config,
+                                webhooks::WebhookEvent::TaskComplete {
+                                    task_id: uuid::Uuid::new_v4().to_string(),
+                                    description: task_description.clone(),
+                                    iterations: task_result.iterations,
+                                    final_score: task_result.final_score,
+                                    cost_usd: task_result.cost,
+                                    total_tokens: task_result.total_tokens,
+                                },
+                            );
                         }
                         Err(e) => {
                             let err_msg = format!("Task failed: {e}");
                             tracing::error!("[{}] {}", event.integration_id, err_msg);
-                            deliver_result(
-                                registry,
+
+                            let mut msg = RichMessage::new(&err_msg)
+                                .with_title("Task Failed")
+                                .with_color("#cc0000");
+
+                            if let Some(t) = tid {
+                                msg = msg.in_thread(t.to_string());
+                            }
+
+                            deliver_rich_result(
+                                &registry,
                                 &event.integration_id,
                                 &event.source,
-                                &err_msg,
+                                &msg,
                             )
                             .await;
+
+                            // Fire task.failed webhook
+                            webhooks::fire_webhook(
+                                webhook_config,
+                                webhooks::WebhookEvent::TaskFailed {
+                                    task_id: uuid::Uuid::new_v4().to_string(),
+                                    description: task_description.clone(),
+                                    error: format!("{e}"),
+                                },
+                            );
                         }
                     }
                 }
@@ -355,12 +466,24 @@ async fn handle_watch_event(
     }
 }
 
-/// Execute a task through the orchestrator and return the output text.
+/// Target for progress notification delivery during task execution.
+struct NotifyTarget {
+    registry: Arc<IntegrationRegistry>,
+    integration_id: String,
+    channel: String,
+    thread_id: Option<String>,
+}
+
+/// Execute a task through the orchestrator and return the full TaskResult.
+///
+/// If `notify` is provided, a "still working..." progress notification is
+/// sent once after 60 seconds of execution.
 async fn execute_daemon_task(
     ctx: &DaemonContext,
     registry: &IntegrationRegistry,
     task_description: &str,
-) -> anyhow::Result<String> {
+    notify: Option<NotifyTarget>,
+) -> anyhow::Result<TaskResult> {
     tracing::info!("Daemon executing task: {}", truncate(task_description, 80));
 
     let task = TaskInput::new(task_description);
@@ -400,6 +523,31 @@ async fn execute_daemon_task(
         skill_registry: ctx.skill_registry.clone(),
     };
 
+    // Progress notification: send "still working..." once after 60s.
+    let notified = Arc::new(AtomicBool::new(false));
+    let notify_handle = if let Some(ref target) = notify {
+        let notified_clone = notified.clone();
+        let notify_registry = target.registry.clone();
+        let notify_int_id = target.integration_id.clone();
+        let notify_channel = target.channel.clone();
+        let notify_thread_id = target.thread_id.clone();
+
+        Some(tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            if !notified_clone.swap(true, Ordering::SeqCst) {
+                let mut msg = RichMessage::new("Still working on your task...")
+                    .with_title("In Progress")
+                    .with_color("#f2c744");
+                if let Some(ref t) = notify_thread_id {
+                    msg = msg.in_thread(t.clone());
+                }
+                deliver_rich_result(&notify_registry, &notify_int_id, &notify_channel, &msg).await;
+            }
+        }))
+    } else {
+        None
+    };
+
     let mut orchestrator = Orchestrator::new(
         ctx.provider.clone(),
         ModelRoles::from_config(
@@ -423,7 +571,15 @@ async fn execute_daemon_task(
 
     let result = orchestrator
         .run(task, &session_ctx, None, integrations)
-        .await?;
+        .await;
+
+    // Cancel the notify timer if the task finished before 60s
+    notified.store(true, Ordering::SeqCst);
+    if let Some(handle) = notify_handle {
+        handle.abort();
+    }
+
+    let result = result?;
 
     // Log the usage event
     if let Some(ref s) = ctx.store {
@@ -446,15 +602,19 @@ async fn execute_daemon_task(
         result.total_tokens,
     );
 
-    Ok(result.output.content)
+    Ok(result)
 }
 
 /// Deliver a result message back to the integration channel that triggered it.
+///
+/// If `thread_id` is provided, replies in-thread. Uses `send_rich()` when the
+/// message has structured fields; falls back to plain `send()` for simple text.
 async fn deliver_result(
     registry: &IntegrationRegistry,
     integration_id: &str,
     channel: &str,
     content: &str,
+    thread_id: Option<&str>,
 ) {
     let Some(integration) = registry.get(integration_id) else {
         tracing::warn!(
@@ -472,7 +632,14 @@ async fn deliver_result(
         return;
     };
 
-    match messaging.send(channel, content).await {
+    let result = if let Some(tid) = thread_id {
+        let msg = RichMessage::new(content).in_thread(tid.to_string());
+        messaging.send_rich(channel, &msg).await
+    } else {
+        messaging.send(channel, content).await
+    };
+
+    match result {
         Ok(_) => {
             tracing::info!("[{}] Result delivered to {}", integration_id, channel);
         }
@@ -487,13 +654,51 @@ async fn deliver_result(
     }
 }
 
+/// Deliver a rich (structured) result message back to the integration channel.
+async fn deliver_rich_result(
+    registry: &IntegrationRegistry,
+    integration_id: &str,
+    channel: &str,
+    msg: &RichMessage,
+) {
+    let Some(integration) = registry.get(integration_id) else {
+        tracing::warn!(
+            "Cannot deliver result: integration '{}' not found",
+            integration_id
+        );
+        return;
+    };
+
+    let Some(messaging) = integration.messaging() else {
+        tracing::warn!(
+            "Cannot deliver result: integration '{}' has no messaging adapter",
+            integration_id
+        );
+        return;
+    };
+
+    match messaging.send_rich(channel, msg).await {
+        Ok(_) => {
+            tracing::info!("[{}] Rich result delivered to {}", integration_id, channel);
+        }
+        Err(e) => {
+            tracing::error!(
+                "[{}] Failed to deliver rich result to {}: {}",
+                integration_id,
+                channel,
+                e
+            );
+        }
+    }
+}
+
 /// Evaluate approved patterns with cron schedules and execute matching ones.
 ///
 /// This runs every 60 seconds in the daemon loop.  It loads all patterns
 /// with `status = 'approved'`, parses their `trigger_json` for a cron
 /// expression, and checks whether the expression matches the current
 /// minute.  If it does, the pattern's description is executed as a task.
-async fn run_scheduled_patterns(ctx: &DaemonContext, registry: &IntegrationRegistry) {
+async fn run_scheduled_patterns(ctx: &DaemonContext, registry: &IntegrationRegistry, webhook_config: &crate::infra::config::WebhookConfig) {
     let store_arc = match ctx.store.as_ref() {
         Some(s) => s,
         None => return,
@@ -543,16 +748,39 @@ async fn run_scheduled_patterns(ctx: &DaemonContext, registry: &IntegrationRegis
                 pattern.id
             );
 
-            match execute_daemon_task(ctx, registry, description).await {
-                Ok(output) => {
+            match execute_daemon_task(ctx, registry, description, None).await {
+                Ok(result) => {
                     tracing::info!(
                         "Scheduled pattern '{}' completed ({} chars output)",
                         pattern.id,
-                        output.len()
+                        result.output.content.len()
+                    );
+
+                    // Fire task.complete webhook
+                    webhooks::fire_webhook(
+                        webhook_config,
+                        webhooks::WebhookEvent::TaskComplete {
+                            task_id: pattern.id.clone(),
+                            description: description.to_string(),
+                            iterations: result.iterations,
+                            final_score: result.final_score,
+                            cost_usd: result.cost,
+                            total_tokens: result.total_tokens,
+                        },
                     );
                 }
                 Err(e) => {
                     tracing::error!("Scheduled pattern '{}' failed: {}", pattern.id, e);
+
+                    // Fire task.failed webhook
+                    webhooks::fire_webhook(
+                        webhook_config,
+                        webhooks::WebhookEvent::TaskFailed {
+                            task_id: pattern.id.clone(),
+                            description: description.to_string(),
+                            error: format!("{e}"),
+                        },
+                    );
                 }
             }
         }

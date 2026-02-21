@@ -9,6 +9,7 @@ use serde::Deserialize;
 
 use crate::integrations::types::{
     Document, DocumentAdapter, DocumentRef, IncomingMessage, Integration, MessagingAdapter,
+    RichMessage,
 };
 
 const SLACK_API_BASE: &str = "https://slack.com/api";
@@ -194,6 +195,77 @@ impl MessagingAdapter for SlackAdapter {
         Ok(resp.ts.unwrap_or_default())
     }
 
+    async fn send_rich(&self, target: &str, msg: &RichMessage) -> anyhow::Result<String> {
+        let mut blocks = Vec::<serde_json::Value>::new();
+
+        // Header block (title)
+        if let Some(ref title) = msg.title {
+            blocks.push(serde_json::json!({
+                "type": "header",
+                "text": { "type": "plain_text", "text": title }
+            }));
+        }
+
+        // Fields as a section block
+        if !msg.fields.is_empty() {
+            let fields: Vec<serde_json::Value> = msg
+                .fields
+                .iter()
+                .map(|(k, v)| {
+                    serde_json::json!({
+                        "type": "mrkdwn",
+                        "text": format!("*{}:* {}", k, v)
+                    })
+                })
+                .collect();
+            blocks.push(serde_json::json!({
+                "type": "section",
+                "fields": fields
+            }));
+        }
+
+        // Body text as a section block
+        if !msg.text.is_empty() {
+            blocks.push(serde_json::json!({
+                "type": "section",
+                "text": { "type": "mrkdwn", "text": msg.text }
+            }));
+        }
+
+        let mut body = serde_json::json!({
+            "channel": target,
+            "text": msg.text,
+            "blocks": blocks,
+        });
+
+        // Attachment with color sidebar (wraps blocks in an attachment for color)
+        if let Some(ref color) = msg.color {
+            body = serde_json::json!({
+                "channel": target,
+                "text": msg.text,
+                "attachments": [{
+                    "color": color,
+                    "blocks": blocks,
+                }],
+            });
+        }
+
+        // Thread support
+        if let Some(ref thread_ts) = msg.thread_id {
+            body["thread_ts"] = serde_json::json!(thread_ts);
+        }
+
+        let resp: ChatPostMessageResp = self.api_post("chat.postMessage", &body).await?;
+        if !resp.ok {
+            anyhow::bail!(
+                "Slack send_rich failed: {}",
+                resp.error.unwrap_or_else(|| "unknown".into())
+            );
+        }
+
+        Ok(resp.ts.unwrap_or_default())
+    }
+
     async fn history(&self, channel: &str, limit: u32) -> anyhow::Result<Vec<IncomingMessage>> {
         let limit_str = limit.to_string();
         let resp: ConversationsHistoryResp = self
@@ -220,6 +292,7 @@ impl MessagingAdapter for SlackAdapter {
                 sender: m.user.unwrap_or_else(|| "unknown".into()),
                 content: m.text.unwrap_or_default(),
                 timestamp: m.ts.unwrap_or_default(),
+                thread_id: None,
             })
             .collect();
 
@@ -253,6 +326,7 @@ impl MessagingAdapter for SlackAdapter {
                     sender: m.user.unwrap_or_else(|| "unknown".into()),
                     content: m.text.unwrap_or_default(),
                     timestamp: m.ts.unwrap_or_default(),
+                    thread_id: None,
                 }
             })
             .collect();

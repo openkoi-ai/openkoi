@@ -151,6 +151,16 @@ pub async fn run_chat(
             skill_registry.clone(),
             store.clone(),
         );
+        {
+            let inner: Option<Box<dyn Fn(crate::core::types::ProgressEvent) + Send>> =
+                Some(Box::new(super::progress::terminal_progress()));
+            let progress = crate::core::state::state_writer_progress(
+                task.id.clone(),
+                task.description.clone(),
+                inner,
+            );
+            orchestrator = orchestrator.with_progress(progress);
+        }
 
         let mcp_ref = mcp.as_deref_mut();
 
@@ -167,10 +177,6 @@ pub async fn run_chat(
                     cost: result.cost,
                     score: result.final_score,
                 });
-                eprintln!(
-                    "[done] {} iteration(s), {} tokens, ${:.2}",
-                    result.iterations, result.total_tokens, result.cost,
-                );
 
                 // Log usage event
                 if let Some(ref s) = store {

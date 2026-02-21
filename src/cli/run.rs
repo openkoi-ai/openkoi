@@ -32,6 +32,7 @@ pub async fn run_task(
     mcp_tools: Vec<ToolDef>,
     mcp_manager: Option<&mut McpManager>,
     integrations: Option<&IntegrationRegistry>,
+    quiet: bool,
 ) -> anyhow::Result<()> {
     let task = TaskInput::new(task_description);
 
@@ -94,11 +95,27 @@ pub async fn run_task(
         store.clone(),
     );
 
-    eprintln!(
-        "[recall] searching memory...\n[execute] {} | model: {}",
-        truncate_task(task_description, 60),
-        model_ref,
-    );
+    {
+        let inner: Option<Box<dyn Fn(crate::core::types::ProgressEvent) + Send>> = if !quiet {
+            Some(Box::new(super::progress::terminal_progress()))
+        } else {
+            None
+        };
+        let progress = crate::core::state::state_writer_progress(
+            task.id.clone(),
+            task.description.clone(),
+            inner,
+        );
+        orchestrator = orchestrator.with_progress(progress);
+    }
+
+    if !quiet {
+        eprintln!(
+            "[recall] searching memory...\n[execute] {} | model: {}",
+            truncate_task(task_description, 60),
+            model_ref,
+        );
+    }
 
     let result = orchestrator
         .run(task, &ctx, mcp_manager, integrations)
@@ -107,12 +124,7 @@ pub async fn run_task(
     // Display result
     println!("{}", result.output.content);
 
-    eprintln!(
-        "[done] {} iteration(s), {} tokens, ${:.2}",
-        result.iterations, result.total_tokens, result.cost,
-    );
-
-    if result.learnings_saved > 0 {
+    if !quiet && result.learnings_saved > 0 {
         eprintln!("  {} learning(s) saved", result.learnings_saved);
     }
 

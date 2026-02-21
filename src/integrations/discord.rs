@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::Deserialize;
 
-use crate::integrations::types::{IncomingMessage, Integration, MessagingAdapter};
+use crate::integrations::types::{IncomingMessage, Integration, MessagingAdapter, RichMessage};
 
 const DISCORD_API_BASE: &str = "https://discord.com/api/v10";
 
@@ -128,6 +128,50 @@ impl MessagingAdapter for DiscordAdapter {
         Ok(resp.id)
     }
 
+    async fn send_rich(&self, target: &str, msg: &RichMessage) -> anyhow::Result<String> {
+        let mut embed = serde_json::json!({
+            "description": msg.text,
+        });
+
+        if let Some(ref title) = msg.title {
+            embed["title"] = serde_json::json!(title);
+        }
+
+        if let Some(ref color) = msg.color {
+            // Convert hex color "#RRGGBB" to integer
+            let hex = color.trim_start_matches('#');
+            if let Ok(c) = u32::from_str_radix(hex, 16) {
+                embed["color"] = serde_json::json!(c);
+            }
+        }
+
+        if !msg.fields.is_empty() {
+            let fields: Vec<serde_json::Value> = msg
+                .fields
+                .iter()
+                .map(|(k, v)| {
+                    serde_json::json!({
+                        "name": k,
+                        "value": v,
+                        "inline": true
+                    })
+                })
+                .collect();
+            embed["fields"] = serde_json::json!(fields);
+        }
+
+        let body = serde_json::json!({
+            "content": "",
+            "embeds": [embed],
+        });
+
+        let resp: CreateMessageResp = self
+            .api_post(&format!("/channels/{target}/messages"), &body)
+            .await?;
+
+        Ok(resp.id)
+    }
+
     async fn history(&self, channel: &str, limit: u32) -> anyhow::Result<Vec<IncomingMessage>> {
         let limit_str = limit.to_string();
         let messages: Vec<DiscordMessage> = self
@@ -145,6 +189,7 @@ impl MessagingAdapter for DiscordAdapter {
                 sender: m.author.username,
                 content: m.content,
                 timestamp: m.timestamp,
+                thread_id: None,
             })
             .collect();
 

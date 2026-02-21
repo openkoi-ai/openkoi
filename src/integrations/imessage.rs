@@ -114,6 +114,7 @@ impl MessagingAdapter for IMessageAdapter {
                         sender: parts[0].trim().to_string(),
                         content: parts[1].trim().to_string(),
                         timestamp: String::new(),
+                        thread_id: None,
                     })
                 } else {
                     None
@@ -175,6 +176,7 @@ impl IMessageAdapter {
                         sender: parts.get(2).unwrap_or(&"unknown").to_string(),
                         content: parts[1].to_string(),
                         timestamp: parts.get(3).unwrap_or(&"").to_string(),
+                        thread_id: None,
                     })
                 } else {
                     None
@@ -225,6 +227,7 @@ impl IMessageAdapter {
                         sender: parts.get(2).unwrap_or(&"unknown").to_string(),
                         content: parts[1].to_string(),
                         timestamp: parts.get(3).unwrap_or(&"").to_string(),
+                        thread_id: None,
                     })
                 } else {
                     None

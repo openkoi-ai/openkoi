@@ -172,6 +172,7 @@ impl EmailAdapter {
                 sender,
                 content: format!("Subject: {}\n\n{}", subject, content),
                 timestamp: date,
+                thread_id: None,
             });
         }
 
@@ -266,6 +267,7 @@ impl EmailAdapter {
                     sender,
                     content: format!("Subject: {}\n\n{}", subject, content),
                     timestamp: date,
+                    thread_id: None,
                 });
             }
         }

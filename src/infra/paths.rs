@@ -83,6 +83,11 @@ pub fn credentials_dir() -> PathBuf {
     config_dir().join("credentials")
 }
 
+/// State directory: ~/.openkoi/state/ (for current-task.json, task-history.jsonl)
+pub fn state_dir() -> PathBuf {
+    config_dir().join("state")
+}
+
 /// Cache directory: ~/.openkoi/cache/
 pub fn cache_dir() -> PathBuf {
     config_dir().join("cache")
@@ -103,6 +108,7 @@ pub async fn ensure_dirs() -> anyhow::Result<()> {
     let dirs = [
         config_dir(),
         credentials_dir(),
+        state_dir(),
         cache_dir(),
         data_dir(),
         sessions_dir(),

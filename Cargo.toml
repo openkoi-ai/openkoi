@@ -53,6 +53,10 @@ thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+# HTTP API server
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
+
 # Utilities
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -89,6 +93,8 @@ tokio-test = "0.4"
 criterion = { version = "0.5", features = ["html_reports"] }
 insta = { version = "1", features = ["yaml"] }
 mockall = "0.13"
+tempfile = "3.25.0"
+tower = { version = "0.5", features = ["util"] }
 
 [[bench]]
 name = "benchmarks"

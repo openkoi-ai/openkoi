@@ -44,6 +44,10 @@ pub struct Config {
     /// Daemon-specific settings (optional section in config.toml).
     #[serde(default)]
     pub daemon: Option<DaemonTomlConfig>,
+
+    /// HTTP API server settings (optional section in config.toml).
+    #[serde(default)]
+    pub api: Option<ApiConfig>,
 }
 
 /// Configuration for a custom OpenAI-compatible provider.
@@ -269,6 +273,57 @@ pub struct DaemonTomlConfig {
 
 fn default_true() -> bool {
     true
+}
+
+/// Optional `[api]` section in config.toml for the HTTP API server.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiConfig {
+    /// Whether to start the HTTP API when the daemon runs. Defaults to true.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Port to bind on (default: 9742). Binds to localhost only.
+    #[serde(default = "default_api_port")]
+    pub port: u16,
+
+    /// Bearer token for authentication. If unset, no auth required (localhost only).
+    #[serde(default)]
+    pub token: Option<String>,
+
+    /// Webhook configuration for lifecycle event callbacks.
+    #[serde(default)]
+    pub webhooks: WebhookConfig,
+}
+
+impl Default for ApiConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            port: 9742,
+            token: None,
+            webhooks: WebhookConfig::default(),
+        }
+    }
+}
+
+fn default_api_port() -> u16 {
+    9742
+}
+
+/// Outbound webhook URLs fired on lifecycle events.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WebhookConfig {
+    /// URL to POST when a task completes.
+    #[serde(default)]
+    pub on_task_complete: Option<String>,
+
+    /// URL to POST when a budget warning is triggered.
+    #[serde(default)]
+    pub on_budget_warning: Option<String>,
+
+    /// URL to POST when a task fails.
+    #[serde(default)]
+    pub on_task_failed: Option<String>,
 }
 
 impl Config {
@@ -502,5 +557,51 @@ enabled = false
     fn test_safety_defaults() {
         let s = SafetyConfig::default();
         assert!((s.regression_threshold - 0.2).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_api_config_defaults() {
+        let api = ApiConfig::default();
+        assert!(api.enabled);
+        assert_eq!(api.port, 9742);
+        assert!(api.token.is_none());
+        assert!(api.webhooks.on_task_complete.is_none());
+        assert!(api.webhooks.on_budget_warning.is_none());
+        assert!(api.webhooks.on_task_failed.is_none());
+    }
+
+    #[test]
+    fn test_parse_api_toml() {
+        let toml_str = r#"
+[api]
+enabled = true
+port = 8080
+token = "my-secret-token"
+
+[api.webhooks]
+on_task_complete = "https://example.com/hook/complete"
+on_budget_warning = "https://example.com/hook/budget"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        let api = config.api.unwrap();
+        assert!(api.enabled);
+        assert_eq!(api.port, 8080);
+        assert_eq!(api.token.as_deref(), Some("my-secret-token"));
+        assert_eq!(
+            api.webhooks.on_task_complete.as_deref(),
+            Some("https://example.com/hook/complete")
+        );
+        assert_eq!(
+            api.webhooks.on_budget_warning.as_deref(),
+            Some("https://example.com/hook/budget")
+        );
+        assert!(api.webhooks.on_task_failed.is_none());
+    }
+
+    #[test]
+    fn test_config_without_api_section() {
+        let toml_str = "";
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(config.api.is_none());
     }
 }

@@ -6,6 +6,7 @@ pub mod export;
 pub mod init;
 pub mod learn;
 pub mod migrate;
+pub mod progress;
 pub mod run;
 pub mod status;
 pub mod update;
@@ -32,8 +33,12 @@ pub struct Cli {
     pub iterate: u8,
 
     /// Quality threshold to accept (0.0-1.0)
-    #[arg(short, long, default_value = "0.8")]
+    #[arg(long, default_value = "0.8")]
     pub quality: f32,
+
+    /// Suppress progress output (only emit final result)
+    #[arg(short, long)]
+    pub quiet: bool,
 
     /// Read task from stdin
     #[arg(long)]
@@ -64,6 +69,9 @@ pub enum Commands {
         /// Show cost details
         #[arg(long)]
         costs: bool,
+        /// Watch current task in real-time (polls current-task.json)
+        #[arg(long)]
+        live: bool,
     },
     /// First-time setup, diagnostics, and provider connections
     Setup {

@@ -188,6 +188,37 @@ pub struct TaskResult {
     pub final_score: f64,
 }
 
+/// Real-time progress events emitted by the orchestrator during task execution.
+/// These are consumed by the CLI progress renderer (or any callback).
+#[derive(Debug, Clone)]
+pub enum ProgressEvent {
+    /// The initial plan has been built.
+    PlanReady {
+        steps: usize,
+        estimated_iterations: u8,
+    },
+    /// An iteration is starting.
+    IterationStart { iteration: u8, max_iterations: u8 },
+    /// A tool call was made during execution.
+    ToolCall { name: String, iteration: u8 },
+    /// An iteration has completed with evaluation results.
+    IterationEnd {
+        iteration: u8,
+        score: f32,
+        decision: IterationDecision,
+        cost_so_far: f64,
+    },
+    /// The safety checker raised a warning or abort.
+    SafetyWarning { message: String },
+    /// The task has completed (final result summary).
+    Complete {
+        iterations: u8,
+        total_tokens: u32,
+        cost: f64,
+        final_score: f64,
+    },
+}
+
 /// A plan for executing a task.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Plan {
