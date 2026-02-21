@@ -109,7 +109,10 @@ pub async fn start_server(config: &ApiConfig, state: ApiState) -> anyhow::Result
 // ── Auth middleware helper ──────────────────────────────────────────
 
 /// Verify the bearer token if one is configured.
-fn check_auth(state: &ApiState, headers: &HeaderMap) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+fn check_auth(
+    state: &ApiState,
+    headers: &HeaderMap,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     let Some(ref expected) = state.token else {
         return Ok(());
     };

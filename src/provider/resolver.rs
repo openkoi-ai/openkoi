@@ -263,13 +263,7 @@ pub async fn discover_providers_with_config(config: &Config) -> Vec<Arc<dyn Mode
     if !seen_providers.contains(&"custom".to_string()) {
         if let Some(key) = load_saved_key("custom").await {
             if let Some(url) = load_saved_custom_url().await {
-                let mut p = OpenAICompatProvider::new(
-                    "custom",
-                    "Custom",
-                    key,
-                    url,
-                    "auto".into(),
-                );
+                let mut p = OpenAICompatProvider::new("custom", "Custom", key, url, "auto".into());
                 p.probe_models().await;
                 providers.push(Arc::new(p));
                 seen_providers.push("custom".into());
@@ -507,8 +501,8 @@ impl std::fmt::Display for ModelValidationError {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::ModelInfo;
+    use super::*;
     use crate::infra::errors::OpenKoiError;
     use async_trait::async_trait;
     use futures::Stream;
@@ -565,12 +559,7 @@ mod tests {
             &self,
             _request: super::super::ChatRequest,
         ) -> Result<
-            Pin<
-                Box<
-                    dyn Stream<Item = Result<super::super::ChatChunk, OpenKoiError>>
-                        + Send,
-                >,
-            >,
+            Pin<Box<dyn Stream<Item = Result<super::super::ChatChunk, OpenKoiError>> + Send>>,
             OpenKoiError,
         > {
             unimplemented!()
@@ -596,10 +585,7 @@ mod tests {
 
     #[test]
     fn test_validate_prefix_match() {
-        let p = MockProvider::new(
-            "test",
-            vec!["gpt-4o-2024-11-20", "gpt-4o-mini-2024-07-18"],
-        );
+        let p = MockProvider::new("test", vec!["gpt-4o-2024-11-20", "gpt-4o-mini-2024-07-18"]);
         // "gpt-4o-2024-11-20" starts with "gpt-4o" — but there are 2 prefix matches
         // (both start with gpt-4o), so this should fall through to fuzzy
         let result = validate_model(&p, "gpt-4o");
@@ -611,10 +597,7 @@ mod tests {
     fn test_validate_single_prefix_match() {
         let p = MockProvider::new("test", vec!["gpt-4o-2024-11-20", "claude-sonnet-4"]);
         // Only one model starts with "gpt-4o"
-        assert_eq!(
-            validate_model(&p, "gpt-4o").unwrap(),
-            "gpt-4o-2024-11-20"
-        );
+        assert_eq!(validate_model(&p, "gpt-4o").unwrap(), "gpt-4o-2024-11-20");
     }
 
     #[test]
@@ -683,8 +666,7 @@ mod tests {
         )) as Arc<dyn ModelProvider>;
         let providers = vec![p];
 
-        let result =
-            resolve_small_model(&providers, Some("anthropic/claude-haiku-3.5"));
+        let result = resolve_small_model(&providers, Some("anthropic/claude-haiku-3.5"));
         assert!(result.is_some());
         let r = result.unwrap();
         assert_eq!(r.provider, "anthropic");
@@ -698,8 +680,7 @@ mod tests {
         let providers = vec![p];
 
         // User configured a model that doesn't exist in catalog — still returns it
-        let result =
-            resolve_small_model(&providers, Some("anthropic/claude-haiku-3.5"));
+        let result = resolve_small_model(&providers, Some("anthropic/claude-haiku-3.5"));
         assert!(result.is_some());
         let r = result.unwrap();
         assert_eq!(r.model, "claude-haiku-3.5");
@@ -725,8 +706,8 @@ mod tests {
             "anthropic",
             vec!["claude-haiku-3.5", "claude-sonnet-4"],
         )) as Arc<dyn ModelProvider>;
-        let p2 = Arc::new(MockProvider::new("openai", vec!["gpt-4o-mini"]))
-            as Arc<dyn ModelProvider>;
+        let p2 =
+            Arc::new(MockProvider::new("openai", vec!["gpt-4o-mini"])) as Arc<dyn ModelProvider>;
         let providers = vec![p1, p2];
 
         let result = resolve_small_model(&providers, None);

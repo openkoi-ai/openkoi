@@ -83,7 +83,11 @@ async fn run() -> anyhow::Result<()> {
             return openkoi::cli::migrate::run_migrate(*status, *rollback).await;
         }
         // ── Active commands ──
-        Some(Commands::Status { verbose, costs, live }) => {
+        Some(Commands::Status {
+            verbose,
+            costs,
+            live,
+        }) => {
             if *live {
                 return openkoi::cli::status::show_live_status().await;
             }
@@ -898,14 +902,14 @@ fn select_model_interactive(providers: &[Arc<dyn ModelProvider>]) -> anyhow::Res
         .prompt()
         .map_err(|_| anyhow::anyhow!("Model selection cancelled"))?;
 
-    let idx = display_list
-        .iter()
-        .position(|d| d == &choice)
-        .unwrap_or(0);
+    let idx = display_list.iter().position(|d| d == &choice).unwrap_or(0);
     let entry = &entries[idx];
 
     eprintln!("  Using: {}/{}", entry.provider_id, entry.model_id);
-    Ok(ModelRef::new(entry.provider_id.clone(), entry.model_id.clone()))
+    Ok(ModelRef::new(
+        entry.provider_id.clone(),
+        entry.model_id.clone(),
+    ))
 }
 
 /// Build capability badge string from model metadata.

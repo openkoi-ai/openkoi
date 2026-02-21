@@ -11,11 +11,11 @@ use futures::StreamExt;
 use reqwest_eventsource::{Event, RequestBuilderExt};
 use std::pin::Pin;
 
+use super::model_cache;
 use super::{
     ChatChunk, ChatRequest, ChatResponse, ModelInfo, ModelProvider, Role, StopReason, TokenUsage,
     ToolCallDelta,
 };
-use super::model_cache;
 use crate::auth::oauth;
 use crate::auth::AuthInfo;
 use crate::infra::errors::OpenKoiError;
@@ -109,10 +109,7 @@ impl GithubCopilotProvider {
     pub async fn probe_models(&mut self) {
         // Try disk cache first
         if let Some(cached) = model_cache::load_cached("copilot") {
-            tracing::info!(
-                "Copilot: loaded {} models from cache",
-                cached.len()
-            );
+            tracing::info!("Copilot: loaded {} models from cache", cached.len());
             self.probed_models = Some(cached);
             return;
         }
@@ -123,20 +120,20 @@ impl GithubCopilotProvider {
                 tracing::info!(
                     "Copilot: probed {} models from API: [{}]",
                     models.len(),
-                    models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>().join(", ")
+                    models
+                        .iter()
+                        .map(|m| m.id.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 );
                 model_cache::save_cache("copilot", &models);
                 self.probed_models = Some(models);
             }
             Ok(_) => {
-                tracing::warn!(
-                    "Copilot /models returned empty list, using static fallback"
-                );
+                tracing::warn!("Copilot /models returned empty list, using static fallback");
             }
             Err(e) => {
-                tracing::warn!(
-                    "Copilot /models probe failed: {e}. Using static fallback."
-                );
+                tracing::warn!("Copilot /models probe failed: {e}. Using static fallback.");
             }
         }
     }

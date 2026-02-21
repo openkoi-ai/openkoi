@@ -240,13 +240,19 @@ pub async fn show_live_status() -> anyhow::Result<()> {
                 let progress_bar = render_progress_bar(task.iteration, task.max_iterations, 30);
 
                 eprintln!("  Task:       {}", truncate_str(&task.description, 60));
-                eprintln!("  ID:         {}", &task.task_id[..8.min(task.task_id.len())]);
+                eprintln!(
+                    "  ID:         {}",
+                    &task.task_id[..8.min(task.task_id.len())]
+                );
                 eprintln!("  Phase:      {}", task.phase);
                 eprintln!(
                     "  Progress:   {} ({}/{})",
                     progress_bar, task.iteration, task.max_iterations,
                 );
-                eprintln!("  Score:      {:.2} (best: {:.2})", task.current_score, task.best_score);
+                eprintln!(
+                    "  Score:      {:.2} (best: {:.2})",
+                    task.current_score, task.best_score
+                );
                 eprintln!("  Cost:       ${:.4}", task.cost_usd);
                 eprintln!("  Tokens:     {}", task.tokens_used);
                 eprintln!("  Elapsed:    {}s", task.elapsed_secs);

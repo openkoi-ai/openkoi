@@ -23,11 +23,21 @@ OpenKoi detects your API keys from the environment, picks the best available mod
 ## Features
 
 - **Self-iteration** — Plan, execute, evaluate, refine. The agent is its own reviewer.
-- **6 providers** — Anthropic, OpenAI, Google, Ollama, AWS Bedrock, any OpenAI-compatible endpoint.
-- **Role-based models** — Assign different models to executor, evaluator, planner, and embedder roles.
+- **8+ providers** — Anthropic, OpenAI, Google, Ollama, AWS Bedrock, Groq, DeepSeek, Moonshot/Kimi, and any OpenAI-compatible endpoint.
+- **Dynamic model discovery** — Probes provider APIs for available models, caches results locally. Fuzzy validation with "did you mean?" suggestions for typos.
+- **Role-based models** — Assign different models to executor, evaluator, planner, and embedder roles. Auto-resolves a small/fast model for cost-sensitive internal tasks.
+- **Automatic retry** — Rate limits, server errors, and timeouts are retried with exponential backoff and jitter. Context overflow is detected and handled separately.
+- **Real-time progress** — Structured progress output on stderr showing plan, iterations, scores, tool calls, and costs. Suppress with `--quiet`.
+- **Live task monitoring** — `openkoi status --live` polls the running task every second with a progress bar, score, cost, and recent history.
+- **Task state persistence** — Current task state written to `~/.openkoi/state/current-task.json`; completed tasks appended to `task-history.jsonl` with auto-rotation.
+- **HTTP API** — Localhost REST API (port 9742) for submitting tasks, querying status, and reading cost data. Optional Bearer token auth.
+- **Webhooks** — Fire HTTP callbacks on `task.complete`, `task.failed`, and `budget.warning` events.
+- **Smart truncation** — Tool outputs exceeding 2000 lines or 50KB are truncated with the full output saved to `~/.openkoi/tool-output/`.
+- **Context overflow handling** — Detects overflow errors from all major providers and prunes context instead of failing.
 - **Persistent memory** — SQLite + vector search. Learnings persist across sessions.
 - **Pattern mining** — Observes your usage, proposes new skills to automate recurring workflows.
 - **Skill system** — OpenClaw-compatible `.SKILL.md` format. Write once, use with any provider.
+- **Rich messaging** — Slack, Discord, and Telegram integrations send structured task results with fields, colors, and thread support.
 - **3-tier plugins** — MCP (external tools), WASM (sandboxed), Rhai (scripting).
 - **10 integrations** — Slack, Discord, MS Teams, GitHub, Jira, Linear, Notion, Google Docs, Telegram, Email.
 - **TUI dashboard** — Real-time view of tasks, costs, learnings, plugins, and config.
@@ -40,6 +50,8 @@ openkoi "task"              # Run a task (default 3 iterations)
 openkoi chat                # Interactive REPL
 openkoi learn               # Review proposed skills (interactive picker)
 openkoi status              # Show costs, memory, active models
+openkoi status --live       # Watch the running task in real-time
+openkoi status --costs      # Show cost tracking summary
 openkoi doctor              # Run diagnostics
 openkoi connect             # Interactive picker: choose provider or integration
 openkoi connect copilot     # Login to GitHub Copilot (direct)
@@ -52,6 +64,15 @@ openkoi export all          # Export all data as JSON (direct)
 openkoi -m ?                # Interactive model picker
 openkoi --select-model      # Same as -m ?
 openkoi update              # Self-update
+```
+
+### Task flags
+
+```bash
+openkoi "task" -i 5               # Set max iterations (default 3)
+openkoi "task" --quality 0.9      # Set quality threshold (default 0.8)
+openkoi "task" --quiet            # Suppress progress output; only emit final result
+openkoi "task" -m claude-sonnet-4 # Use a specific model
 ```
 
 All commands that accept an argument also work without one — omitting the argument shows an interactive selection menu. Explicit arguments still work exactly as before.
@@ -83,6 +104,7 @@ Set an environment variable or paste a key when prompted during `openkoi init`.
 | OpenRouter | `OPENROUTER_API_KEY` |
 | Together | `TOGETHER_API_KEY` |
 | DeepSeek | `DEEPSEEK_API_KEY` |
+| Moonshot/Kimi | `MOONSHOT_API_KEY` |
 | xAI | `XAI_API_KEY` |
 | Qwen | `QWEN_API_KEY` |
 
@@ -127,6 +149,44 @@ openkoi disconnect all         # Remove all OAuth tokens
 
 # Show connection status
 openkoi connect status
+```
+
+## HTTP API
+
+The daemon exposes a localhost REST API on port 9742 for external tools, scripts, and web UIs.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/tasks` | Submit a new task |
+| `GET` | `/api/v1/tasks` | List recent tasks |
+| `GET` | `/api/v1/tasks/{id}` | Get task details |
+| `POST` | `/api/v1/tasks/{id}/cancel` | Cancel a running task |
+| `GET` | `/api/v1/status` | System status (version, daemon state, active task) |
+| `GET` | `/api/v1/cost` | Cost summary for last 24 hours |
+| `GET` | `/api/v1/health` | Health check |
+
+```bash
+# Submit a task
+curl -X POST http://localhost:9742/api/v1/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"description": "Fix the login bug", "max_iterations": 5}'
+
+# Check status
+curl http://localhost:9742/api/v1/status
+```
+
+Configure in `config.toml`:
+
+```toml
+[api]
+enabled = true
+port = 9742
+token = "your-secret-token"  # Optional Bearer auth
+
+[api.webhooks]
+on_task_complete = "https://example.com/hooks/complete"
+on_task_failed = "https://example.com/hooks/failed"
+on_budget_warning = "https://example.com/hooks/budget"
 ```
 
 ## Architecture

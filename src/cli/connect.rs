@@ -136,7 +136,9 @@ pub async fn run_connect(app: Option<&str>) -> anyhow::Result<()> {
             .await
         }
         "imessage" => connect_imessage().await,
-        "moonshot" | "kimi" => connect_api_key_provider("moonshot", "Moonshot/Kimi", "MOONSHOT_API_KEY").await,
+        "moonshot" | "kimi" => {
+            connect_api_key_provider("moonshot", "Moonshot/Kimi", "MOONSHOT_API_KEY").await
+        }
         "google_docs" | "gdocs" => connect_google_docs().await,
         "google_sheets" | "gsheets" => connect_google_sheets().await,
         "email" => connect_email().await,
@@ -190,7 +192,15 @@ pub async fn run_disconnect(app: Option<&str>) -> anyhow::Result<()> {
             }
 
             // Check API key providers
-            for id in &["anthropic", "openai", "openrouter", "groq", "together", "deepseek", "moonshot"] {
+            for id in &[
+                "anthropic",
+                "openai",
+                "openrouter",
+                "groq",
+                "together",
+                "deepseek",
+                "moonshot",
+            ] {
                 if store.get(id).is_some() {
                     connected.push((id, id));
                 }
@@ -226,9 +236,10 @@ pub async fn run_disconnect(app: Option<&str>) -> anyhow::Result<()> {
                 return Ok(());
             }
 
-            let labels: Vec<String> = connected.iter().map(|(id, desc)| {
-                format!("{:<20} {}", id, desc)
-            }).collect();
+            let labels: Vec<String> = connected
+                .iter()
+                .map(|(id, desc)| format!("{:<20} {}", id, desc))
+                .collect();
 
             let choice = inquire::Select::new("Disconnect from:", labels.clone())
                 .with_help_message("Select a provider or integration to disconnect")
@@ -409,11 +420,7 @@ async fn connect_provider_oauth(provider_id: &str, display_name: &str) -> anyhow
 }
 
 /// Generic flow for API key providers (saves to ~/.openkoi/credentials/{id}.key).
-async fn connect_api_key_provider(
-    id: &str,
-    name: &str,
-    env_var: &str,
-) -> anyhow::Result<()> {
+async fn connect_api_key_provider(id: &str, name: &str, env_var: &str) -> anyhow::Result<()> {
     println!("Connecting {name}...");
     println!();
 

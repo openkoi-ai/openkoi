@@ -223,10 +223,7 @@ fn format_status(ctx: &DaemonContext) -> String {
     let recent: Vec<_> = events.iter().rev().take(5).collect();
     for ev in recent {
         let desc = ev.description.as_deref().unwrap_or("(no description)");
-        let score_str = ev
-            .score
-            .map(|s| format!(" [{:.1}]", s))
-            .unwrap_or_default();
+        let score_str = ev.score.map(|s| format!(" [{:.1}]", s)).unwrap_or_default();
         lines.push(format!("  • {}{}", truncate(desc, 60), score_str));
     }
 
@@ -383,13 +380,8 @@ async fn handle_watch_event(
                         thread_id: tid.map(String::from),
                     };
 
-                    let result = execute_daemon_task(
-                        ctx,
-                        &registry,
-                        &task_description,
-                        Some(notify),
-                    )
-                    .await;
+                    let result =
+                        execute_daemon_task(ctx, &registry, &task_description, Some(notify)).await;
 
                     match result {
                         Ok(task_result) => {
@@ -399,10 +391,7 @@ async fn handle_watch_event(
                                 .with_color("#36a64f")
                                 .with_field("Score", format!("{:.2}", task_result.final_score))
                                 .with_field("Cost", format!("${:.2}", task_result.cost))
-                                .with_field(
-                                    "Iterations",
-                                    format!("{}", task_result.iterations),
-                                );
+                                .with_field("Iterations", format!("{}", task_result.iterations));
 
                             if let Some(t) = tid {
                                 msg = msg.in_thread(t.to_string());
@@ -698,30 +687,34 @@ async fn deliver_rich_result(
 /// with `status = 'approved'`, parses their `trigger_json` for a cron
 /// expression, and checks whether the expression matches the current
 /// minute.  If it does, the pattern's description is executed as a task.
-async fn run_scheduled_patterns(ctx: &DaemonContext, registry: &IntegrationRegistry, webhook_config: &crate::infra::config::WebhookConfig) {
+async fn run_scheduled_patterns(
+    ctx: &DaemonContext,
+    registry: &IntegrationRegistry,
+    webhook_config: &crate::infra::config::WebhookConfig,
+) {
     let store_arc = match ctx.store.as_ref() {
         Some(s) => s,
         None => return,
     };
-    let store_guard = match store_arc.lock() {
-        Ok(g) => g,
-        Err(_) => return,
-    };
 
-    let patterns = match store_guard.query_approved_patterns() {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::debug!("Failed to query approved patterns: {}", e);
-            return;
+    // Scope the lock so the MutexGuard is dropped before any `.await` calls.
+    let patterns = {
+        let store_guard = match store_arc.lock() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+        match store_guard.query_approved_patterns() {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::debug!("Failed to query approved patterns: {}", e);
+                return;
+            }
         }
     };
 
     if patterns.is_empty() {
         return;
     }
-
-    // Drop the lock before executing tasks (which also need the store)
-    drop(store_guard);
 
     let now = chrono::Utc::now();
 

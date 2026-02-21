@@ -180,9 +180,7 @@ async fn poll_integration(
                     for msg in new_msgs {
                         let (event_type, payload) =
                             match detect_mention(&msg.content, &config.integration_id) {
-                                Some(command_text) => {
-                                    (WatchEventType::Mention, command_text)
-                                }
+                                Some(command_text) => (WatchEventType::Mention, command_text),
                                 None => {
                                     if config.mentions_only {
                                         continue;

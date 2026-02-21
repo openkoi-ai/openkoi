@@ -332,10 +332,7 @@ async fn evolve_soul() -> anyhow::Result<()> {
             // Interactive approval using inquire::Confirm
             let apply = inquire::Confirm::new("Apply this soul evolution?")
                 .with_default(false)
-                .with_help_message(&format!(
-                    "Writes to {}",
-                    paths::soul_path().display()
-                ))
+                .with_help_message(&format!("Writes to {}", paths::soul_path().display()))
                 .prompt()
                 .unwrap_or(false);
 

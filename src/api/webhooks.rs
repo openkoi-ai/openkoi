@@ -124,7 +124,10 @@ async fn send_webhook(url: &str, payload: &WebhookPayload) -> anyhow::Result<()>
     let resp = client
         .post(url)
         .header("content-type", "application/json")
-        .header("user-agent", format!("openkoi/{}", env!("CARGO_PKG_VERSION")))
+        .header(
+            "user-agent",
+            format!("openkoi/{}", env!("CARGO_PKG_VERSION")),
+        )
         .json(payload)
         .timeout(std::time::Duration::from_secs(10))
         .send()

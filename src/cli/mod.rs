@@ -115,7 +115,6 @@ pub enum Commands {
     },
 
     // ── Hidden aliases for backward compatibility ──
-
     /// First-time setup (alias for `setup`)
     #[command(hide = true)]
     Init,

@@ -31,7 +31,11 @@ pub async fn run_export(
                 .prompt()
                 .map_err(|_| anyhow::anyhow!("Selection cancelled"))?;
             // Extract the target keyword before the spaces/dash
-            choice.split_whitespace().next().unwrap_or("all").to_string()
+            choice
+                .split_whitespace()
+                .next()
+                .unwrap_or("all")
+                .to_string()
         }
     };
 

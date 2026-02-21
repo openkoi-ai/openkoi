@@ -11,9 +11,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use futures::Stream;
 
-use super::{
-    ChatChunk, ChatRequest, ChatResponse, ModelInfo, ModelProvider,
-};
+use super::{ChatChunk, ChatRequest, ChatResponse, ModelInfo, ModelProvider};
 use crate::infra::errors::OpenKoiError;
 
 /// Default retry configuration.
@@ -343,16 +341,18 @@ mod tests {
     fn test_deterministic_jitter_range() {
         for attempt in 0..20 {
             let j = deterministic_jitter(attempt, 0.2);
-            assert!(j >= 0.8 && j <= 1.2, "jitter {} out of range for attempt {}", j, attempt);
+            assert!(
+                j >= 0.8 && j <= 1.2,
+                "jitter {} out of range for attempt {}",
+                j,
+                attempt
+            );
         }
     }
 
     #[test]
     fn test_deterministic_jitter_reproducible() {
-        assert_eq!(
-            deterministic_jitter(5, 0.2),
-            deterministic_jitter(5, 0.2)
-        );
+        assert_eq!(deterministic_jitter(5, 0.2), deterministic_jitter(5, 0.2));
     }
 
     #[test]
@@ -370,9 +370,15 @@ mod tests {
 
     #[async_trait]
     impl ModelProvider for DummyProvider {
-        fn id(&self) -> &str { "dummy" }
-        fn name(&self) -> &str { "Dummy" }
-        fn models(&self) -> Vec<ModelInfo> { vec![] }
+        fn id(&self) -> &str {
+            "dummy"
+        }
+        fn name(&self) -> &str {
+            "Dummy"
+        }
+        fn models(&self) -> Vec<ModelInfo> {
+            vec![]
+        }
         async fn chat(&self, _req: ChatRequest) -> Result<ChatResponse, OpenKoiError> {
             Err(OpenKoiError::NoProvider)
         }

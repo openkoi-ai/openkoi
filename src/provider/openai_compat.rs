@@ -9,10 +9,10 @@ use futures::StreamExt;
 use reqwest_eventsource::{Event, RequestBuilderExt};
 use std::pin::Pin;
 
+use super::model_cache;
 use super::{
     ChatChunk, ChatRequest, ChatResponse, ModelInfo, ModelProvider, Role, StopReason, TokenUsage,
 };
-use super::model_cache;
 use crate::infra::errors::OpenKoiError;
 
 /// Probe timeout for /v1/models endpoint.
@@ -68,11 +68,7 @@ impl OpenAICompatProvider {
         // Probe the API
         match self.fetch_models_from_api().await {
             Ok(models) if !models.is_empty() => {
-                tracing::info!(
-                    "{}: probed {} models from API",
-                    self.name_str,
-                    models.len()
-                );
+                tracing::info!("{}: probed {} models from API", self.name_str, models.len());
                 model_cache::save_cache(&self.id_str, &models);
                 self.probed_models = Some(models);
             }
@@ -181,7 +177,7 @@ impl OpenAICompatProvider {
                         name,
                         context_window,
                         max_output_tokens,
-                        supports_tools: true,  // Assume true, most modern models support this
+                        supports_tools: true, // Assume true, most modern models support this
                         supports_streaming: true,
                         input_price_per_mtok: input_price,
                         output_price_per_mtok: output_price,
