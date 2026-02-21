@@ -317,7 +317,8 @@ mod tests {
         );
 
         // Verify deserialization from expected JSON
-        let from_json = r#"{"type":"oauth","access_token":"tok","refresh_token":"ref","expires_at":0}"#;
+        let from_json =
+            r#"{"type":"oauth","access_token":"tok","refresh_token":"ref","expires_at":0}"#;
         let info: AuthInfo = serde_json::from_str(from_json).unwrap();
         assert_eq!(info.token(), "tok");
     }

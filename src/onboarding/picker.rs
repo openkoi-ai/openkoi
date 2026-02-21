@@ -13,6 +13,7 @@ use super::discovery::{
     CredentialSource, DiscoveredProvider,
 };
 use crate::auth::{AuthInfo, AuthStore};
+use crate::infra::paths;
 
 // ─── Provider option ────────────────────────────────────────────────────────
 
@@ -189,7 +190,12 @@ async fn setup_api_key(provider_id: &str, display_label: &str) -> Result<Discove
         .map_err(|e| anyhow!("Input cancelled: {e}"))?;
 
     save_credential(provider_id, &key).await?;
-    eprintln!("  Saved to ~/.openkoi/credentials/{}.key", provider_id);
+    eprintln!(
+        "  Saved to {}",
+        paths::credentials_dir()
+            .join(format!("{}.key", provider_id))
+            .display()
+    );
 
     Ok(DiscoveredProvider {
         provider: provider_id.into(),

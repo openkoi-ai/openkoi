@@ -1,5 +1,6 @@
 // src/cli/connect.rs — Integration setup with real credential storage + validation
 
+use crate::infra::paths;
 use crate::integrations::credentials::{self, IntegrationCredentials};
 use std::fmt;
 
@@ -336,7 +337,10 @@ fn disconnect_provider(provider_id: &str, display_name: &str) -> anyhow::Result<
     if store.get(provider_id).is_some() {
         store.remove_and_save(provider_id)?;
         eprintln!("  {display_name} disconnected.");
-        eprintln!("  Token removed from ~/.openkoi/auth.json");
+        eprintln!(
+            "  Token removed from {}",
+            paths::config_dir().join("auth.json").display()
+        );
     } else {
         eprintln!("  {display_name} is not connected.");
     }
@@ -414,7 +418,10 @@ async fn connect_provider_oauth(provider_id: &str, display_name: &str) -> anyhow
     let model = default_model_for_oauth(provider_id);
     eprintln!();
     eprintln!("  Connected. Using: {provider_id} / {model}");
-    eprintln!("  Credentials saved to ~/.openkoi/auth.json");
+    eprintln!(
+        "  Credentials saved to {}",
+        paths::config_dir().join("auth.json").display()
+    );
 
     Ok(())
 }
@@ -524,7 +531,10 @@ async fn connect_integration(
             // Save credentials
             creds.set_token(id, &token)?;
             creds.save()?;
-            println!("  Credentials saved to ~/.openkoi/credentials/integrations.json");
+            println!(
+                "  Credentials saved to {}",
+                paths::credentials_dir().join("integrations.json").display()
+            );
 
             // Validate the saved credentials
             print!("  Validating... ");
@@ -551,7 +561,7 @@ async fn connect_integration(
 
     // Show config.toml hint
     println!();
-    println!("  Enable in ~/.openkoi/config.toml:");
+    println!("  Enable in {}:", paths::config_file_path().display());
     println!("    [integrations.{id}]");
     println!("    enabled = true");
 
@@ -576,7 +586,7 @@ async fn connect_imessage() -> anyhow::Result<()> {
             println!("OK");
             println!("  {msg}");
             println!();
-            println!("  Enable in ~/.openkoi/config.toml:");
+            println!("  Enable in {}:", paths::config_file_path().display());
             println!("    [integrations.imessage]");
             println!("    enabled = true");
         }
