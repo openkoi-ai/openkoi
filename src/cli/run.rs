@@ -1,6 +1,7 @@
 // src/cli/run.rs — Default command: run a task
 
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use crate::core::orchestrator::{Orchestrator, SessionContext};
 use crate::core::safety::SafetyChecker;
@@ -13,6 +14,7 @@ use crate::memory::recall::{self, HistoryRecall};
 use crate::memory::store::Store;
 use crate::patterns::event_logger::{EventLogger, EventType, UsageEvent};
 use crate::plugins::mcp::McpManager;
+use crate::provider::roles::ModelRoles;
 use crate::provider::{ModelProvider, ModelRef, ToolDef};
 use crate::skills::registry::SkillRegistry;
 use crate::soul::loader;
@@ -26,7 +28,7 @@ pub async fn run_task(
     config: &Config,
     max_iterations: u8,
     quality_threshold: f32,
-    store: Option<&Store>,
+    store: Option<Arc<Mutex<Store>>>,
     mcp_tools: Vec<ToolDef>,
     mcp_manager: Option<&mut McpManager>,
     integrations: Option<&IntegrationRegistry>,
@@ -48,16 +50,17 @@ pub async fn run_task(
 
     // Select relevant skills for this task
     let selector = SkillSelector::new();
+    let store_guard = store.as_ref().and_then(|s| s.lock().ok());
     let ranked_skills = selector.select(
         &task.description,
         task.category.as_deref(),
         skill_registry.all(),
-        store,
+        store_guard.as_deref(),
     );
     tracing::debug!("Selected {} skill(s)", ranked_skills.len());
 
     // Recall from memory
-    let recall = match store {
+    let recall = match store_guard.as_deref() {
         Some(s) => {
             let token_budget = engine_config.token_budget / 10; // 10% for recall
             recall::recall(s, task_description, task.category.as_deref(), token_budget)
@@ -66,6 +69,7 @@ pub async fn run_task(
         None => HistoryRecall::default(),
     };
     tracing::debug!("Recalled {} tokens of context", recall.tokens_used);
+    drop(store_guard);
 
     let ctx = SessionContext {
         soul,
@@ -77,10 +81,17 @@ pub async fn run_task(
 
     let mut orchestrator = Orchestrator::new(
         provider,
-        model_ref.model.clone(),
+        ModelRoles::from_config(
+            model_ref.clone(),
+            config.models.executor.as_deref(),
+            config.models.evaluator.as_deref(),
+            config.models.planner.as_deref(),
+            config.models.embedder.as_deref(),
+        ),
         engine_config,
         safety,
         ctx.skill_registry.clone(),
+        store.clone(),
     );
 
     eprintln!(
@@ -106,26 +117,30 @@ pub async fn run_task(
     }
 
     // Log usage event
-    if let Some(s) = store {
-        let event_logger = EventLogger::new(s);
-        let _ = event_logger.log(&UsageEvent {
-            event_type: EventType::Task,
-            channel: "cli".into(),
-            description: task_description.to_string(),
-            category: None,
-            skills_used: result.skills_used.clone(),
-            score: Some(result.final_score as f32),
-        });
+    if let Some(ref s) = store {
+        if let Ok(locked) = s.lock() {
+            let event_logger = EventLogger::new(&locked);
+            let _ = event_logger.log(&UsageEvent {
+                event_type: EventType::Task,
+                channel: "cli".into(),
+                description: task_description.to_string(),
+                category: None,
+                skills_used: result.skills_used.clone(),
+                score: Some(result.final_score as f32),
+            });
 
-        // Apply learning decay after each task (lightweight)
-        let _ = decay::run_decay(s, config.memory.learning_decay_rate);
+            // Apply learning decay after each task (lightweight)
+            let _ = decay::run_decay(&locked, config.memory.learning_decay_rate);
+        }
     }
 
     // Check if soul evolution is warranted (every 50 tasks)
     // This is a lightweight check — the actual LLM call only happens
     // if enough learnings have accumulated.
-    if let Some(s) = store {
-        check_soul_evolution(s);
+    if let Some(ref s) = store {
+        if let Ok(locked) = s.lock() {
+            check_soul_evolution(&locked);
+        }
     }
 
     Ok(())

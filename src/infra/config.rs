@@ -80,6 +80,9 @@ pub struct ModelsConfig {
     pub evaluator: Option<String>,
     pub planner: Option<String>,
     pub embedder: Option<String>,
+    /// Preferred small/fast model for cost-sensitive tasks (title generation, summaries, etc.).
+    /// If unset, resolved automatically from available providers using a priority list.
+    pub small_model: Option<String>,
     #[serde(default)]
     pub fallback: FallbackConfig,
 }
@@ -91,6 +94,7 @@ impl Default for ModelsConfig {
             evaluator: None,
             planner: None,
             embedder: Some("openai/text-embedding-3-small".into()),
+            small_model: None,
             fallback: FallbackConfig::default(),
         }
     }
@@ -403,6 +407,31 @@ evaluator = "anthropic/claude-opus-4"
             Some("anthropic/claude-opus-4".into())
         );
         assert!(config.models.planner.is_none());
+        assert!(config.models.small_model.is_none());
+    }
+
+    #[test]
+    fn test_parse_models_with_small_model() {
+        let toml_str = r#"
+[models]
+executor = "anthropic/claude-sonnet-4"
+small_model = "anthropic/claude-haiku-3.5"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(
+            config.models.executor,
+            Some("anthropic/claude-sonnet-4".into())
+        );
+        assert_eq!(
+            config.models.small_model,
+            Some("anthropic/claude-haiku-3.5".into())
+        );
+    }
+
+    #[test]
+    fn test_models_default_small_model_none() {
+        let m = ModelsConfig::default();
+        assert!(m.small_model.is_none());
     }
 
     #[test]

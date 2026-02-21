@@ -76,6 +76,7 @@ fn scan_env_providers() -> Vec<(String, String)> {
         ("TOGETHER_API_KEY", "together"),
         ("DEEPSEEK_API_KEY", "deepseek"),
         ("XAI_API_KEY", "xai"),
+        ("MOONSHOT_API_KEY", "moonshot"),
     ];
 
     let mut found = Vec::new();

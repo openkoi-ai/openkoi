@@ -112,6 +112,12 @@ impl ModelProvider for GoogleProvider {
                 supports_streaming: true,
                 input_price_per_mtok: 1.25,
                 output_price_per_mtok: 10.0,
+                can_reason: true,
+                supports_vision: true,
+                supports_attachments: true,
+                family: Some("gemini-2.5".into()),
+                release_date: Some("2025-03-25".into()),
+                ..Default::default()
             },
             ModelInfo {
                 id: "gemini-2.5-flash".into(),
@@ -122,6 +128,12 @@ impl ModelProvider for GoogleProvider {
                 supports_streaming: true,
                 input_price_per_mtok: 0.15,
                 output_price_per_mtok: 0.60,
+                can_reason: true,
+                supports_vision: true,
+                supports_attachments: true,
+                family: Some("gemini-2.5".into()),
+                release_date: Some("2025-04-17".into()),
+                ..Default::default()
             },
             ModelInfo {
                 id: "gemini-2.0-flash".into(),
@@ -132,6 +144,11 @@ impl ModelProvider for GoogleProvider {
                 supports_streaming: true,
                 input_price_per_mtok: 0.10,
                 output_price_per_mtok: 0.40,
+                supports_vision: true,
+                supports_attachments: true,
+                family: Some("gemini-2.0".into()),
+                release_date: Some("2025-02-05".into()),
+                ..Default::default()
             },
         ]
     }

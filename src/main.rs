@@ -17,6 +17,7 @@ use openkoi::provider::resolver;
 use openkoi::provider::{ModelProvider, ModelRef};
 use openkoi::security::permissions;
 use std::sync::Arc;
+use std::sync::Mutex;
 
 #[tokio::main]
 async fn main() {
@@ -41,33 +42,30 @@ async fn run() -> anyhow::Result<()> {
 
     // Dispatch subcommands that don't need a provider
     match &cli.command {
+        // ── Setup (new canonical command) ──
+        Some(Commands::Setup { connect, migrate }) => {
+            if *migrate {
+                return openkoi::cli::migrate::run_migrate(false, false).await;
+            }
+            if let Some(ref app) = connect {
+                return openkoi::cli::connect::run_connect(Some(app)).await;
+            }
+            // Full setup: init + doctor + connect picker
+            openkoi::cli::init::run_init().await?;
+            println!();
+            run_doctor(&config).await?;
+            println!();
+            return openkoi::cli::connect::run_connect(None).await;
+        }
+        // ── Hidden aliases (backward compat) ──
         Some(Commands::Init) => {
             return openkoi::cli::init::run_init().await;
-        }
-        Some(Commands::Status { verbose, costs }) => {
-            return openkoi::cli::status::show_status(*verbose, *costs).await;
-        }
-        Some(Commands::Learn { action }) => {
-            return openkoi::cli::learn::run_learn(action.clone()).await;
-        }
-        Some(Commands::Connect { app }) => {
-            return openkoi::cli::connect::run_connect(app.as_deref()).await;
-        }
-        Some(Commands::Disconnect { app }) => {
-            return openkoi::cli::connect::run_disconnect(app.as_deref()).await;
-        }
-        Some(Commands::Daemon { action }) => {
-            return run_daemon_command(action.clone(), &config).await;
         }
         Some(Commands::Doctor) => {
             return run_doctor(&config).await;
         }
-        Some(Commands::Dashboard) => {
-            let store = init_store();
-            return openkoi::tui::run_dashboard(store.as_ref(), &config);
-        }
-        Some(Commands::Update { version, check }) => {
-            return openkoi::cli::update::run_update(version.clone(), *check).await;
+        Some(Commands::Connect { app }) => {
+            return openkoi::cli::connect::run_connect(app.as_deref()).await;
         }
         Some(Commands::Export {
             target,
@@ -83,6 +81,40 @@ async fn run() -> anyhow::Result<()> {
         }
         Some(Commands::Migrate { status, rollback }) => {
             return openkoi::cli::migrate::run_migrate(*status, *rollback).await;
+        }
+        // ── Active commands ──
+        Some(Commands::Status { verbose, costs }) => {
+            return openkoi::cli::status::show_status(*verbose, *costs).await;
+        }
+        Some(Commands::Learn { action }) => {
+            return openkoi::cli::learn::run_learn(action.clone()).await;
+        }
+        Some(Commands::Disconnect { app }) => {
+            return openkoi::cli::connect::run_disconnect(app.as_deref()).await;
+        }
+        Some(Commands::Daemon { action }) => {
+            return run_daemon_command(action.clone(), &config).await;
+        }
+        Some(Commands::Dashboard {
+            export,
+            export_format,
+            output,
+        }) => {
+            // If --export is given, run export instead of the TUI
+            if let Some(ref target) = export {
+                return openkoi::cli::export::run_export(
+                    Some(target),
+                    export_format.as_deref(),
+                    output.as_deref(),
+                )
+                .await;
+            }
+            let store = init_store();
+            let store_guard = store.as_ref().and_then(|s| s.lock().ok());
+            return openkoi::tui::run_dashboard(store_guard.as_deref(), &config);
+        }
+        Some(Commands::Update { version, check }) => {
+            return openkoi::cli::update::run_update(version.clone(), *check).await;
         }
         _ => {}
     }
@@ -148,7 +180,9 @@ async fn run() -> anyhow::Result<()> {
 
     // Run decay on learnings at startup
     if let Some(ref s) = store {
-        run_startup_decay(s, &config);
+        if let Ok(locked) = s.lock() {
+            run_startup_decay(&locked, &config);
+        }
     }
 
     // Start MCP tool servers
@@ -178,7 +212,7 @@ async fn run() -> anyhow::Result<()> {
 
     // Dispatch
     match cli.command {
-        Some(Commands::Chat { session }) => {
+        Some(Commands::Chat) => {
             let mcp = if mcp_manager.has_servers() {
                 Some(&mut mcp_manager)
             } else {
@@ -188,8 +222,7 @@ async fn run() -> anyhow::Result<()> {
                 provider,
                 &model_ref,
                 &config,
-                session.as_deref(),
-                store.as_ref(),
+                store.clone(),
                 all_tools,
                 mcp,
                 integrations.as_ref(),
@@ -214,7 +247,7 @@ async fn run() -> anyhow::Result<()> {
                 &config,
                 cli.iterate,
                 cli.quality,
-                store.as_ref(),
+                store.clone(),
                 all_tools,
                 mcp,
                 integrations.as_ref(),
@@ -228,7 +261,7 @@ async fn run() -> anyhow::Result<()> {
 
 /// Initialize the SQLite store, running migrations if needed.
 /// Returns None if the database can't be opened (non-fatal for first run).
-fn init_store() -> Option<Store> {
+fn init_store() -> Option<Arc<Mutex<Store>>> {
     let db_path = openkoi::infra::paths::db_path();
 
     // Ensure parent directory exists
@@ -246,7 +279,7 @@ fn init_store() -> Option<Store> {
                 );
                 return None;
             }
-            Some(Store::new(conn))
+            Some(Arc::new(Mutex::new(Store::new(conn))))
         }
         Err(e) => {
             tracing::warn!("Could not open database: {}. Memory features disabled.", e);
@@ -521,7 +554,7 @@ async fn run_daemon_command(action: Option<DaemonAction>, config: &Config) -> an
                 provider,
                 model_ref,
                 config: config.clone(),
-                store,
+                store: store.clone(),
                 skill_registry,
                 mcp_tools,
             };
@@ -800,35 +833,51 @@ fn init_plugins(config: &Config) -> HookExecutor {
 ///
 /// Lists all available providers and their models so the user doesn't have
 /// to remember the `provider/model` format. Invoked by `--select-model` or `-m ?`.
+///
+/// Models are grouped by provider and annotated with capability badges
+/// and a pricing tier indicator.
 fn select_model_interactive(providers: &[Arc<dyn ModelProvider>]) -> anyhow::Result<ModelRef> {
     if providers.is_empty() {
         anyhow::bail!("No providers available. Run `openkoi init` to set up a provider.");
     }
 
-    // Build a flat list of "provider / model" entries with display info
-    let mut entries: Vec<(String, String, String)> = Vec::new(); // (provider_id, model_id, display)
+    // ── Build grouped entries ───────────────────────────────────────
+    struct PickerEntry {
+        provider_id: String,
+        model_id: String,
+        display: String,
+    }
 
-    for p in providers {
+    let mut entries: Vec<PickerEntry> = Vec::new();
+
+    // Collect providers sorted alphabetically by name for a stable ordering
+    let mut sorted_providers: Vec<&Arc<dyn ModelProvider>> = providers.iter().collect();
+    sorted_providers.sort_by_key(|p| p.name().to_lowercase());
+
+    for p in &sorted_providers {
         let models = p.models();
         if models.is_empty() {
-            // Provider with no model list (e.g. OpenRouter "auto")
-            entries.push((
-                p.id().to_string(),
-                "auto".to_string(),
-                format!("{:<16} auto", p.name()),
-            ));
+            entries.push(PickerEntry {
+                provider_id: p.id().to_string(),
+                model_id: "auto".to_string(),
+                display: format!("{:<14} auto", p.name()),
+            });
         } else {
             for m in &models {
-                entries.push((
-                    p.id().to_string(),
-                    m.id.clone(),
-                    format!(
-                        "{:<16} {:<36} ({}K ctx)",
+                let badges = format_badges(m);
+                let tier = pricing_tier(m);
+                entries.push(PickerEntry {
+                    provider_id: p.id().to_string(),
+                    model_id: m.id.clone(),
+                    display: format!(
+                        "{:<14} {:<38} {:>6} {:>4}  {}K",
                         p.name(),
                         m.id,
-                        m.context_window / 1000
+                        badges,
+                        tier,
+                        m.context_window / 1000,
                     ),
-                ));
+                });
             }
         }
     }
@@ -837,11 +886,11 @@ fn select_model_interactive(providers: &[Arc<dyn ModelProvider>]) -> anyhow::Res
         anyhow::bail!("No models found across available providers.");
     }
 
-    let display_list: Vec<String> = entries.iter().map(|(_, _, d)| d.clone()).collect();
+    let display_list: Vec<String> = entries.iter().map(|e| e.display.clone()).collect();
 
     let choice = inquire::Select::new("Select a model:", display_list.clone())
-        .with_help_message("Use arrow keys to browse, type to filter")
-        .with_page_size(15)
+        .with_help_message("[R]=reasoning [V]=vision [T]=tools | $-$$$ pricing | type to filter")
+        .with_page_size(20)
         .prompt()
         .map_err(|_| anyhow::anyhow!("Model selection cancelled"))?;
 
@@ -849,8 +898,43 @@ fn select_model_interactive(providers: &[Arc<dyn ModelProvider>]) -> anyhow::Res
         .iter()
         .position(|d| d == &choice)
         .unwrap_or(0);
-    let (ref provider_id, ref model_id, _) = entries[idx];
+    let entry = &entries[idx];
 
-    eprintln!("  Using: {}/{}", provider_id, model_id);
-    Ok(ModelRef::new(provider_id.clone(), model_id.clone()))
+    eprintln!("  Using: {}/{}", entry.provider_id, entry.model_id);
+    Ok(ModelRef::new(entry.provider_id.clone(), entry.model_id.clone()))
+}
+
+/// Build capability badge string from model metadata.
+/// Badges: `[R]` = reasoning, `[V]` = vision, `[T]` = tools.
+fn format_badges(m: &openkoi::provider::ModelInfo) -> String {
+    let mut badges = String::new();
+    if m.can_reason {
+        badges.push_str("[R]");
+    }
+    if m.supports_vision {
+        badges.push_str("[V]");
+    }
+    if m.supports_tools {
+        badges.push_str("[T]");
+    }
+    badges
+}
+
+/// Map model pricing to a tier indicator.
+/// Based on output price per million tokens:
+///   free  — $0
+///   $     — up to $5/Mtok
+///   $$    — up to $30/Mtok
+///   $$$   — above $30/Mtok
+fn pricing_tier(m: &openkoi::provider::ModelInfo) -> &'static str {
+    let out = m.output_price_per_mtok;
+    if out <= 0.0 {
+        "free"
+    } else if out <= 5.0 {
+        "$"
+    } else if out <= 30.0 {
+        "$$"
+    } else {
+        "$$$"
+    }
 }

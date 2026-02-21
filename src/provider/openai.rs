@@ -57,6 +57,12 @@ impl ModelProvider for OpenAIProvider {
                 supports_streaming: true,
                 input_price_per_mtok: 2.0,
                 output_price_per_mtok: 8.0,
+                supports_vision: true,
+                supports_attachments: true,
+                family: Some("gpt-4.1".into()),
+                release_date: Some("2025-04-14".into()),
+                cache_read_price_per_mtok: 0.5,
+                ..Default::default()
             },
             ModelInfo {
                 id: "gpt-4.1-mini".into(),
@@ -67,6 +73,12 @@ impl ModelProvider for OpenAIProvider {
                 supports_streaming: true,
                 input_price_per_mtok: 0.4,
                 output_price_per_mtok: 1.6,
+                supports_vision: true,
+                supports_attachments: true,
+                family: Some("gpt-4.1".into()),
+                release_date: Some("2025-04-14".into()),
+                cache_read_price_per_mtok: 0.1,
+                ..Default::default()
             },
             ModelInfo {
                 id: "o3-mini".into(),
@@ -77,6 +89,10 @@ impl ModelProvider for OpenAIProvider {
                 supports_streaming: true,
                 input_price_per_mtok: 1.1,
                 output_price_per_mtok: 4.4,
+                can_reason: true,
+                family: Some("o3".into()),
+                release_date: Some("2025-01-31".into()),
+                ..Default::default()
             },
         ]
     }

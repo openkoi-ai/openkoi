@@ -10,7 +10,7 @@ pub mod run;
 pub mod status;
 pub mod update;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "openkoi", about = "Self-iterating AI agent", version)]
@@ -24,7 +24,7 @@ pub struct Cli {
     pub model: Option<String>,
 
     /// Interactively select a model from available providers
-    #[arg(long)]
+    #[arg(long, visible_alias = "select-model")]
     pub select_model: bool,
 
     /// Max iterations (0 = no iteration, just execute)
@@ -39,10 +39,6 @@ pub struct Cli {
     #[arg(long)]
     pub stdin: bool,
 
-    /// Output format
-    #[arg(long, default_value = "text")]
-    pub format: OutputFormat,
-
     /// Config file path
     #[arg(long)]
     pub config: Option<String>,
@@ -54,17 +50,13 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Interactive chat session
-    Chat {
-        /// Resume a previous session
-        #[arg(long)]
-        session: Option<String>,
-    },
+    Chat,
     /// Review learned patterns and proposed skills
     Learn {
         #[command(subcommand)]
         action: Option<LearnAction>,
     },
-    /// Show system status
+    /// Show system status (includes diagnostics and cost info)
     Status {
         /// Show detailed breakdown
         #[arg(long)]
@@ -73,27 +65,32 @@ pub enum Commands {
         #[arg(long)]
         costs: bool,
     },
-    /// First-time setup
-    Init,
-    /// Manage integrations
-    Connect {
-        /// App to connect (e.g. slack, notion) — interactive picker if omitted
-        app: Option<String>,
-    },
-    /// Disconnect / logout from a provider or integration
-    Disconnect {
-        /// Provider or integration to disconnect — interactive picker if omitted
-        app: Option<String>,
+    /// First-time setup, diagnostics, and provider connections
+    Setup {
+        /// App to connect (e.g. slack, notion) — skips init/doctor
+        #[arg(long)]
+        connect: Option<String>,
+        /// Run database migrations
+        #[arg(long)]
+        migrate: bool,
     },
     /// Background daemon for automated integration watching
     Daemon {
         #[command(subcommand)]
         action: Option<DaemonAction>,
     },
-    /// Run system diagnostics
-    Doctor,
     /// Launch the TUI dashboard
-    Dashboard,
+    Dashboard {
+        /// Export data: learnings, sessions, patterns, all
+        #[arg(long)]
+        export: Option<String>,
+        /// Export format (json, csv)
+        #[arg(long)]
+        export_format: Option<String>,
+        /// Export output file path (defaults to stdout)
+        #[arg(short, long)]
+        output: Option<String>,
+    },
     /// Self-update to the latest release
     Update {
         /// Update to a specific version instead of latest
@@ -103,23 +100,40 @@ pub enum Commands {
         #[arg(long)]
         check: bool,
     },
-    /// Export data (learnings, sessions, patterns)
+    /// Disconnect / logout from a provider or integration
+    Disconnect {
+        /// Provider or integration to disconnect — interactive picker if omitted
+        app: Option<String>,
+    },
+
+    // ── Hidden aliases for backward compatibility ──
+
+    /// First-time setup (alias for `setup`)
+    #[command(hide = true)]
+    Init,
+    /// Manage integrations (alias for `setup --connect <app>`)
+    #[command(hide = true)]
+    Connect {
+        /// App to connect (e.g. slack, notion)
+        app: Option<String>,
+    },
+    /// Run system diagnostics (alias for `status --verbose`)
+    #[command(hide = true)]
+    Doctor,
+    /// Export data (alias for `dashboard --export`)
+    #[command(hide = true)]
     Export {
-        /// What to export: learnings, sessions, patterns, all — interactive picker if omitted
         target: Option<String>,
-        /// Output format
         #[arg(long)]
         format: Option<String>,
-        /// Output file path (defaults to stdout)
         #[arg(short, long)]
         output: Option<String>,
     },
-    /// Run database migrations
+    /// Run database migrations (alias for `setup --migrate`)
+    #[command(hide = true)]
     Migrate {
-        /// Show migration status without running
         #[arg(long)]
         status: bool,
-        /// Roll back the last migration
         #[arg(long)]
         rollback: bool,
     },
@@ -146,12 +160,4 @@ pub enum DaemonAction {
     Stop,
     /// Show daemon status
     Status,
-}
-
-#[derive(ValueEnum, Clone, Default)]
-pub enum OutputFormat {
-    #[default]
-    Text,
-    Json,
-    Markdown,
 }

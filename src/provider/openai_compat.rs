@@ -185,6 +185,7 @@ impl OpenAICompatProvider {
                         supports_streaming: true,
                         input_price_per_mtok: input_price,
                         output_price_per_mtok: output_price,
+                        ..Default::default()
                     })
                 })
                 .collect::<Vec<_>>(),
@@ -219,6 +220,7 @@ impl ModelProvider for OpenAICompatProvider {
             supports_streaming: true,
             input_price_per_mtok: 0.0,
             output_price_per_mtok: 0.0,
+            ..Default::default()
         }]
     }
 

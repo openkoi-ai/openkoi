@@ -176,10 +176,23 @@ async fn poll_integration(
                     }
 
                     for msg in new_msgs {
+                        let (event_type, payload) =
+                            match detect_mention(&msg.content, &config.integration_id) {
+                                Some(command_text) => {
+                                    (WatchEventType::Mention, command_text)
+                                }
+                                None => {
+                                    if config.mentions_only {
+                                        continue;
+                                    }
+                                    (WatchEventType::NewMessage, msg.content)
+                                }
+                            };
+
                         let event = WatchEvent {
                             integration_id: config.integration_id.clone(),
-                            event_type: WatchEventType::NewMessage,
-                            payload: msg.content,
+                            event_type,
+                            payload,
                             source: msg.channel,
                         };
 
@@ -247,6 +260,87 @@ async fn poll_integration(
     }
 
     Ok(())
+}
+
+/// Detect whether a message is a mention / command directed at OpenKoi.
+///
+/// Returns `Some(command_text)` with the trigger prefix stripped when a
+/// mention is detected, or `None` when the message is not addressed to us.
+///
+/// Trigger patterns by integration:
+/// - slack / discord / msteams: `@openkoi` anywhere in the message
+/// - telegram: `/koi` command or `@openkoi_bot` mention
+/// - imessage: message starts with `koi:` prefix
+/// - fallback: `@openkoi` anywhere
+fn detect_mention(content: &str, integration_id: &str) -> Option<String> {
+    let lower = content.to_lowercase();
+
+    match integration_id {
+        "slack" | "discord" | "msteams" => {
+            // Look for @openkoi (with optional surrounding angle brackets for Slack)
+            let patterns = ["@openkoi", "<@openkoi>"];
+            for pat in patterns {
+                if let Some(pos) = lower.find(pat) {
+                    let after = content[pos + pat.len()..].trim().to_string();
+                    let before = content[..pos].trim();
+                    let command = if after.is_empty() {
+                        before.to_string()
+                    } else {
+                        after
+                    };
+                    return Some(command);
+                }
+            }
+            None
+        }
+        "telegram" => {
+            // /koi command or @openkoi_bot mention
+            if lower.starts_with("/koi") {
+                let rest = content["/koi".len()..].trim();
+                // Handle /koi@openkoi_bot (Telegram group format)
+                let rest = rest
+                    .strip_prefix("@openkoi_bot")
+                    .map(|s| s.trim())
+                    .unwrap_or(rest);
+                return Some(rest.to_string());
+            }
+            if let Some(pos) = lower.find("@openkoi_bot") {
+                let after = content[pos + "@openkoi_bot".len()..].trim();
+                let before = content[..pos].trim();
+                let command = if after.is_empty() {
+                    before.to_string()
+                } else {
+                    after.to_string()
+                };
+                return Some(command);
+            }
+            None
+        }
+        "imessage" => {
+            // Messages starting with "koi:" prefix
+            let trimmed = content.trim();
+            let lower_trimmed = trimmed.to_lowercase();
+            if lower_trimmed.starts_with("koi:") {
+                let rest = trimmed["koi:".len()..].trim();
+                return Some(rest.to_string());
+            }
+            None
+        }
+        _ => {
+            // Fallback: look for @openkoi
+            if let Some(pos) = lower.find("@openkoi") {
+                let after = content[pos + "@openkoi".len()..].trim().to_string();
+                let before = content[..pos].trim();
+                let command = if after.is_empty() {
+                    before.to_string()
+                } else {
+                    after
+                };
+                return Some(command);
+            }
+            None
+        }
+    }
 }
 
 /// Simple non-cryptographic hash for change detection.

@@ -11,6 +11,7 @@ pub mod openai;
 pub mod openai_compat;
 pub mod openai_oauth;
 pub mod resolver;
+pub mod retry;
 pub mod roles;
 
 use async_trait::async_trait;
@@ -47,6 +48,64 @@ pub struct ModelInfo {
     pub supports_streaming: bool,
     pub input_price_per_mtok: f64,
     pub output_price_per_mtok: f64,
+    // ─── Extended metadata (Phase 4) ─────────────────────────────
+    /// Whether the model supports extended reasoning / chain-of-thought.
+    #[serde(default)]
+    pub can_reason: bool,
+    /// Whether the model supports image/vision inputs.
+    #[serde(default)]
+    pub supports_vision: bool,
+    /// Whether the model supports file attachments.
+    #[serde(default)]
+    pub supports_attachments: bool,
+    /// Lifecycle status of the model.
+    #[serde(default)]
+    pub status: ModelStatus,
+    /// Model family grouping (e.g., "gpt-4o", "claude-sonnet").
+    #[serde(default)]
+    pub family: Option<String>,
+    /// Release date in ISO 8601 format (e.g., "2025-01-01").
+    #[serde(default)]
+    pub release_date: Option<String>,
+    /// Pricing for prompt cache reads (per million tokens).
+    #[serde(default)]
+    pub cache_read_price_per_mtok: f64,
+    /// Pricing for prompt cache writes (per million tokens).
+    #[serde(default)]
+    pub cache_write_price_per_mtok: f64,
+}
+
+/// Lifecycle status of a model.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ModelStatus {
+    #[default]
+    Active,
+    Beta,
+    Deprecated,
+}
+
+impl Default for ModelInfo {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            context_window: 128_000,
+            max_output_tokens: 16_384,
+            supports_tools: false,
+            supports_streaming: false,
+            input_price_per_mtok: 0.0,
+            output_price_per_mtok: 0.0,
+            can_reason: false,
+            supports_vision: false,
+            supports_attachments: false,
+            status: ModelStatus::Active,
+            family: None,
+            release_date: None,
+            cache_read_price_per_mtok: 0.0,
+            cache_write_price_per_mtok: 0.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]

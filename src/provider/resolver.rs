@@ -10,6 +10,7 @@ use super::ollama::OllamaProvider;
 use super::openai::OpenAIProvider;
 use super::openai_compat::OpenAICompatProvider;
 use super::openai_oauth::OpenAICodexProvider;
+use super::retry::RetryProvider;
 use super::{ModelProvider, ModelRef};
 use crate::auth::AuthStore;
 use crate::infra::config::Config;
@@ -191,6 +192,18 @@ pub async fn discover_providers_with_config(config: &Config) -> Vec<Arc<dyn Mode
         providers.push(Arc::new(p));
         seen_providers.push("xai".into());
     }
+    if let Some(key) = resolve_key("MOONSHOT_API_KEY", "moonshot").await {
+        let mut p = OpenAICompatProvider::new(
+            "moonshot",
+            "Moonshot",
+            key,
+            "https://api.moonshot.cn/v1".into(),
+            "kimi-k2.5".into(),
+        );
+        p.probe_models().await;
+        providers.push(Arc::new(p));
+        seen_providers.push("moonshot".into());
+    }
 
     // --- Qwen: env var > saved file > Qwen CLI ---
     if !seen_providers.contains(&"qwen".to_string()) {
@@ -270,6 +283,12 @@ pub async fn discover_providers_with_config(config: &Config) -> Vec<Arc<dyn Mode
         providers.push(Arc::new(ollama));
     }
 
+    // Wrap every provider with retry logic for resilience against transient failures.
+    let providers: Vec<Arc<dyn ModelProvider>> = providers
+        .into_iter()
+        .map(|p| Arc::new(RetryProvider::new(p)) as Arc<dyn ModelProvider>)
+        .collect();
+
     providers
 }
 
@@ -302,6 +321,7 @@ pub fn pick_default_model(providers: &[Arc<dyn ModelProvider>]) -> Option<ModelR
         ("openai", "gpt-4.1"),
         ("google", "gemini-2.5-pro"),
         ("bedrock", "anthropic.claude-sonnet-4-20250514-v1:0"),
+        ("moonshot", "kimi-k2.5"),
         ("openrouter", "auto"),
         ("groq", "llama-3.3-70b-versatile"),
         ("deepseek", "deepseek-chat"),
@@ -335,6 +355,67 @@ pub fn find_provider<'a>(
     provider_id: &str,
 ) -> Option<&'a Arc<dyn ModelProvider>> {
     providers.iter().find(|p| p.id() == provider_id)
+}
+
+/// Resolve the best small/fast model from available providers.
+///
+/// Priority: explicit config > first available from priority list.
+/// The priority list favors cheap, fast models suitable for cost-sensitive tasks
+/// like title generation, summaries, and classification.
+pub fn resolve_small_model(
+    providers: &[Arc<dyn ModelProvider>],
+    config_small_model: Option<&str>,
+) -> Option<ModelRef> {
+    // 1. Explicit config takes priority
+    if let Some(configured) = config_small_model {
+        if let Some(r) = ModelRef::parse(configured) {
+            // Verify the provider and model actually exist
+            if let Some(p) = find_provider(providers, &r.provider) {
+                if p.models().iter().any(|m| m.id == r.model) {
+                    return Some(r);
+                }
+            }
+            // If the exact model isn't found, return it anyway (user intent)
+            return Some(r);
+        }
+    }
+
+    // 2. Auto-resolve from priority list
+    let priority: &[(&str, &str)] = &[
+        ("anthropic", "claude-haiku-3.5"),
+        ("copilot", "gpt-4o-mini"),
+        ("openai", "gpt-4o-mini"),
+        ("chatgpt", "gpt-4o-mini"),
+        ("google", "gemini-2.0-flash"),
+        ("groq", "llama-3.3-70b-versatile"),
+        ("deepseek", "deepseek-chat"),
+        ("xai", "grok-2"),
+        ("moonshot", "moonshot-v1-8k"),
+        ("together", "meta-llama/Llama-3.3-70B-Instruct-Turbo"),
+        ("ollama", ""), // Will pick best available
+    ];
+
+    for (provider_id, model_id) in priority {
+        if let Some(p) = find_provider(providers, provider_id) {
+            let models = p.models();
+            if model_id.is_empty() {
+                // Ollama: pick best available
+                let model_names: Vec<String> = models.iter().map(|m| m.id.clone()).collect();
+                let best = OllamaProvider::pick_best_model(&model_names);
+                return Some(ModelRef::new(*provider_id, best));
+            }
+            // Check exact match
+            if models.iter().any(|m| m.id == *model_id) {
+                return Some(ModelRef::new(*provider_id, *model_id));
+            }
+            // Check prefix match (e.g., "claude-haiku-3.5" matching "claude-haiku-3.5-20250101")
+            if let Some(m) = models.iter().find(|m| m.id.starts_with(model_id)) {
+                return Some(ModelRef::new(*provider_id, m.id.clone()));
+            }
+        }
+    }
+
+    None
 }
 
 /// Validate that a model ID exists in the provider's model list.
@@ -456,6 +537,7 @@ mod tests {
                         supports_streaming: true,
                         input_price_per_mtok: 0.0,
                         output_price_per_mtok: 0.0,
+                        ..Default::default()
                     })
                     .collect(),
             }
@@ -589,5 +671,98 @@ mod tests {
         let msg = format!("{err}");
         assert!(msg.contains("xyz"));
         assert!(!msg.contains("Did you mean"));
+    }
+
+    // ─── resolve_small_model tests ──────────────────────────────
+
+    #[test]
+    fn test_resolve_small_model_explicit_config() {
+        let p = Arc::new(MockProvider::new(
+            "anthropic",
+            vec!["claude-haiku-3.5", "claude-sonnet-4"],
+        )) as Arc<dyn ModelProvider>;
+        let providers = vec![p];
+
+        let result =
+            resolve_small_model(&providers, Some("anthropic/claude-haiku-3.5"));
+        assert!(result.is_some());
+        let r = result.unwrap();
+        assert_eq!(r.provider, "anthropic");
+        assert_eq!(r.model, "claude-haiku-3.5");
+    }
+
+    #[test]
+    fn test_resolve_small_model_explicit_config_not_in_catalog() {
+        let p = Arc::new(MockProvider::new("anthropic", vec!["claude-sonnet-4"]))
+            as Arc<dyn ModelProvider>;
+        let providers = vec![p];
+
+        // User configured a model that doesn't exist in catalog — still returns it
+        let result =
+            resolve_small_model(&providers, Some("anthropic/claude-haiku-3.5"));
+        assert!(result.is_some());
+        let r = result.unwrap();
+        assert_eq!(r.model, "claude-haiku-3.5");
+    }
+
+    #[test]
+    fn test_resolve_small_model_auto_priority() {
+        let p1 = Arc::new(MockProvider::new("openai", vec!["gpt-4o", "gpt-4o-mini"]))
+            as Arc<dyn ModelProvider>;
+        let providers = vec![p1];
+
+        // No config — should auto-resolve from priority list
+        let result = resolve_small_model(&providers, None);
+        assert!(result.is_some());
+        let r = result.unwrap();
+        assert_eq!(r.provider, "openai");
+        assert_eq!(r.model, "gpt-4o-mini");
+    }
+
+    #[test]
+    fn test_resolve_small_model_auto_priority_anthropic_first() {
+        let p1 = Arc::new(MockProvider::new(
+            "anthropic",
+            vec!["claude-haiku-3.5", "claude-sonnet-4"],
+        )) as Arc<dyn ModelProvider>;
+        let p2 = Arc::new(MockProvider::new("openai", vec!["gpt-4o-mini"]))
+            as Arc<dyn ModelProvider>;
+        let providers = vec![p1, p2];
+
+        let result = resolve_small_model(&providers, None);
+        assert!(result.is_some());
+        let r = result.unwrap();
+        // Anthropic is higher priority than OpenAI
+        assert_eq!(r.provider, "anthropic");
+        assert_eq!(r.model, "claude-haiku-3.5");
+    }
+
+    #[test]
+    fn test_resolve_small_model_prefix_match() {
+        let p = Arc::new(MockProvider::new(
+            "anthropic",
+            vec!["claude-haiku-3.5-20250301"],
+        )) as Arc<dyn ModelProvider>;
+        let providers = vec![p];
+
+        let result = resolve_small_model(&providers, None);
+        assert!(result.is_some());
+        let r = result.unwrap();
+        assert_eq!(r.model, "claude-haiku-3.5-20250301");
+    }
+
+    #[test]
+    fn test_resolve_small_model_none_available() {
+        let providers: Vec<Arc<dyn ModelProvider>> = vec![];
+        let result = resolve_small_model(&providers, None);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_resolve_small_model_invalid_config_format() {
+        let providers: Vec<Arc<dyn ModelProvider>> = vec![];
+        // Invalid format (no slash) — ModelRef::parse returns None, falls through to auto
+        let result = resolve_small_model(&providers, Some("no-slash"));
+        assert!(result.is_none());
     }
 }

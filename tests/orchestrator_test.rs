@@ -11,6 +11,7 @@ use openkoi::core::safety::SafetyChecker;
 use openkoi::core::types::{IterationEngineConfig, TaskInput};
 use openkoi::infra::config::{IterationConfig, SafetyConfig};
 use openkoi::memory::recall::HistoryRecall;
+use openkoi::provider::roles::ModelRoles;
 use openkoi::provider::*;
 use openkoi::skills::registry::SkillRegistry;
 use openkoi::soul::loader::{Soul, SoulSource};
@@ -48,6 +49,7 @@ impl ModelProvider for MockProvider {
             supports_streaming: false,
             input_price_per_mtok: 0.0,
             output_price_per_mtok: 0.0,
+            ..Default::default()
         }]
     }
 
@@ -117,10 +119,11 @@ async fn test_orchestrator_single_iteration_accept() {
 
     let mut orchestrator = Orchestrator::new(
         provider,
-        "mock-model".into(),
+        ModelRoles::from_single(ModelRef::new("mock", "mock-model")),
         config,
         safety,
         Arc::new(SkillRegistry::empty()),
+        None,
     )
     .with_project_dir(std::env::temp_dir().join("openkoi_test_nonexistent"));
     let task = TaskInput::new("Say hello");
@@ -154,10 +157,11 @@ async fn test_orchestrator_multiple_iterations() {
 
     let mut orchestrator = Orchestrator::new(
         provider,
-        "mock-model".into(),
+        ModelRoles::from_single(ModelRef::new("mock", "mock-model")),
         config,
         safety,
         Arc::new(SkillRegistry::empty()),
+        None,
     )
     .with_project_dir(std::env::temp_dir().join("openkoi_test_nonexistent"));
     let task = TaskInput::new("Write a complex function");
@@ -180,10 +184,11 @@ async fn test_orchestrator_with_tools_defined() {
 
     let mut orchestrator = Orchestrator::new(
         provider,
-        "mock-model".into(),
+        ModelRoles::from_single(ModelRef::new("mock", "mock-model")),
         config,
         safety,
         Arc::new(SkillRegistry::empty()),
+        None,
     )
     .with_project_dir(std::env::temp_dir().join("openkoi_test_nonexistent"));
     let task = TaskInput::new("Search for files");
@@ -213,10 +218,11 @@ async fn test_orchestrator_result_includes_skills_used() {
 
     let mut orchestrator = Orchestrator::new(
         provider,
-        "mock-model".into(),
+        ModelRoles::from_single(ModelRef::new("mock", "mock-model")),
         config,
         safety,
         Arc::new(SkillRegistry::empty()),
+        None,
     )
     .with_project_dir(std::env::temp_dir().join("openkoi_test_nonexistent"));
     let task = TaskInput::new("Test");

@@ -105,6 +105,14 @@ impl ModelProvider for AnthropicProvider {
                 supports_streaming: true,
                 input_price_per_mtok: 3.0,
                 output_price_per_mtok: 15.0,
+                can_reason: true,
+                supports_vision: true,
+                supports_attachments: true,
+                family: Some("claude-sonnet".into()),
+                release_date: Some("2025-05-14".into()),
+                cache_read_price_per_mtok: 0.3,
+                cache_write_price_per_mtok: 3.75,
+                ..Default::default()
             },
             ModelInfo {
                 id: "claude-opus-4-20250514".into(),
@@ -115,6 +123,14 @@ impl ModelProvider for AnthropicProvider {
                 supports_streaming: true,
                 input_price_per_mtok: 15.0,
                 output_price_per_mtok: 75.0,
+                can_reason: true,
+                supports_vision: true,
+                supports_attachments: true,
+                family: Some("claude-opus".into()),
+                release_date: Some("2025-05-14".into()),
+                cache_read_price_per_mtok: 1.5,
+                cache_write_price_per_mtok: 18.75,
+                ..Default::default()
             },
             ModelInfo {
                 id: "claude-haiku-3-5-20241022".into(),
@@ -125,6 +141,12 @@ impl ModelProvider for AnthropicProvider {
                 supports_streaming: true,
                 input_price_per_mtok: 0.8,
                 output_price_per_mtok: 4.0,
+                supports_vision: true,
+                family: Some("claude-haiku".into()),
+                release_date: Some("2024-10-22".into()),
+                cache_read_price_per_mtok: 0.08,
+                cache_write_price_per_mtok: 1.0,
+                ..Default::default()
             },
         ]
     }

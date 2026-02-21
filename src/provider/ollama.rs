@@ -102,6 +102,7 @@ impl ModelProvider for OllamaProvider {
                 supports_streaming: true,
                 input_price_per_mtok: 0.0,
                 output_price_per_mtok: 0.0,
+                ..Default::default()
             })
             .collect()
     }

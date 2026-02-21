@@ -52,6 +52,11 @@ fn connect_options() -> Vec<ConnectOption> {
             hint: "(REST API, API key)",
         },
         ConnectOption {
+            id: "moonshot",
+            label: "Moonshot/Kimi",
+            hint: "(API key, OpenAI-compatible)",
+        },
+        ConnectOption {
             id: "imessage",
             label: "iMessage",
             hint: "(macOS only, AppleScript)",
@@ -131,6 +136,7 @@ pub async fn run_connect(app: Option<&str>) -> anyhow::Result<()> {
             .await
         }
         "imessage" => connect_imessage().await,
+        "moonshot" | "kimi" => connect_api_key_provider("moonshot", "Moonshot/Kimi", "MOONSHOT_API_KEY").await,
         "google_docs" | "gdocs" => connect_google_docs().await,
         "google_sheets" | "gsheets" => connect_google_sheets().await,
         "email" => connect_email().await,
@@ -148,6 +154,7 @@ pub async fn run_connect(app: Option<&str>) -> anyhow::Result<()> {
             eprintln!("  discord        Discord server (Bot API)");
             eprintln!("  telegram       Telegram bot (Bot API)");
             eprintln!("  notion         Notion workspace (REST API)");
+            eprintln!("  moonshot       Moonshot/Kimi (API key)");
             eprintln!("  imessage       iMessage (macOS only, AppleScript)");
             eprintln!("  google_docs    Google Docs (OAuth2)");
             eprintln!("  google_sheets  Google Sheets (OAuth2)");
@@ -183,7 +190,7 @@ pub async fn run_disconnect(app: Option<&str>) -> anyhow::Result<()> {
             }
 
             // Check API key providers
-            for id in &["anthropic", "openai", "openrouter", "groq", "together", "deepseek"] {
+            for id in &["anthropic", "openai", "openrouter", "groq", "together", "deepseek", "moonshot"] {
                 if store.get(id).is_some() {
                     connected.push((id, id));
                 }
@@ -242,21 +249,58 @@ pub async fn run_disconnect(app: Option<&str>) -> anyhow::Result<()> {
             disconnect_provider("chatgpt", "ChatGPT Plus/Pro")
         }
         // ── API key providers ──
-        "anthropic" | "openai" | "openrouter" | "groq" | "together" | "deepseek" => {
-            disconnect_api_key(&app)
+        "anthropic" | "openai" | "openrouter" | "groq" | "together" | "deepseek" | "moonshot"
+        | "kimi" => {
+            let id = if app == "kimi" { "moonshot" } else { &app };
+            disconnect_api_key(id)
         }
         // ── All ──
         "all" => {
-            eprintln!("Disconnecting all providers...");
+            eprintln!("Disconnecting all providers and integrations...");
+
+            // 1. Remove OAuth tokens from auth.json
             let mut store = crate::auth::AuthStore::load().unwrap_or_default();
-            let providers = ["copilot", "chatgpt"];
-            for id in &providers {
+            let oauth_providers = ["copilot", "chatgpt"];
+            for id in &oauth_providers {
                 if store.get(id).is_some() {
                     store.remove_and_save(id)?;
-                    eprintln!("  Removed {id}");
+                    eprintln!("  Removed OAuth token: {id}");
                 }
             }
-            eprintln!("Done. All OAuth tokens removed from ~/.openkoi/auth.json");
+
+            // 2. Remove API key files from ~/.openkoi/credentials/
+            let api_key_providers = [
+                "anthropic",
+                "openai",
+                "openrouter",
+                "groq",
+                "together",
+                "deepseek",
+                "moonshot",
+            ];
+            let creds_dir = crate::infra::paths::credentials_dir();
+            for id in &api_key_providers {
+                let key_path = creds_dir.join(format!("{id}.key"));
+                if key_path.exists() {
+                    std::fs::remove_file(&key_path)?;
+                    eprintln!("  Removed API key: {id}");
+                }
+            }
+            // Also remove custom.url if present
+            let custom_url_path = creds_dir.join("custom.url");
+            if custom_url_path.exists() {
+                std::fs::remove_file(&custom_url_path)?;
+                eprintln!("  Removed custom endpoint URL");
+            }
+
+            // 3. Remove integration credentials from integrations.json
+            let int_path = creds_dir.join("integrations.json");
+            if int_path.exists() {
+                std::fs::remove_file(&int_path)?;
+                eprintln!("  Removed integration credentials (integrations.json)");
+            }
+
+            eprintln!("Done. All credentials removed.");
             Ok(())
         }
         _ => {
@@ -268,7 +312,8 @@ pub async fn run_disconnect(app: Option<&str>) -> anyhow::Result<()> {
             eprintln!("  anthropic        Anthropic API key");
             eprintln!("  openai           OpenAI API key");
             eprintln!("  openrouter       OpenRouter API key");
-            eprintln!("  all              All OAuth providers");
+            eprintln!("  moonshot         Moonshot/Kimi API key");
+            eprintln!("  all              All providers + integrations");
             Err(anyhow::anyhow!("Unknown target: {app}"))
         }
     }
@@ -359,6 +404,57 @@ async fn connect_provider_oauth(provider_id: &str, display_name: &str) -> anyhow
     eprintln!();
     eprintln!("  Connected. Using: {provider_id} / {model}");
     eprintln!("  Credentials saved to ~/.openkoi/auth.json");
+
+    Ok(())
+}
+
+/// Generic flow for API key providers (saves to ~/.openkoi/credentials/{id}.key).
+async fn connect_api_key_provider(
+    id: &str,
+    name: &str,
+    env_var: &str,
+) -> anyhow::Result<()> {
+    println!("Connecting {name}...");
+    println!();
+
+    // Check if already configured via env var or saved file
+    let has_key = std::env::var(env_var).is_ok()
+        || crate::infra::paths::credentials_dir()
+            .join(format!("{id}.key"))
+            .exists();
+
+    if has_key {
+        println!("  {name} is already configured (via {env_var} or saved key).");
+        println!("  To reconfigure, enter a new API key below.");
+    } else {
+        println!("  No credentials found for {name}.");
+        println!();
+        println!("  Option 1: Set the environment variable:");
+        println!("    export {env_var}=<your-api-key>");
+        println!();
+        println!("  Option 2: Enter the key interactively:");
+    }
+
+    // Prompt for key
+    match inquire::Password::new(&format!("{name} API key:"))
+        .with_display_mode(inquire::PasswordDisplayMode::Masked)
+        .without_confirmation()
+        .prompt_skippable()
+    {
+        Ok(Some(key)) if !key.is_empty() => {
+            let key_path = crate::infra::paths::credentials_dir().join(format!("{id}.key"));
+            tokio::fs::create_dir_all(key_path.parent().unwrap()).await?;
+            tokio::fs::write(&key_path, key.trim()).await?;
+            println!("  API key saved to {}", key_path.display());
+        }
+        _ => {
+            if has_key {
+                println!("  Skipped. Existing credentials unchanged.");
+            } else {
+                println!("  Skipped. Set {env_var} in your environment to connect later.");
+            }
+        }
+    }
 
     Ok(())
 }
@@ -568,6 +664,7 @@ async fn show_connection_status() -> anyhow::Result<()> {
             "groq",
             "together",
             "deepseek",
+            "moonshot",
         ];
         for id in &api_providers {
             if store.get(id).is_some() {

@@ -9,6 +9,8 @@ pub struct ModelRoles {
     pub evaluator: ModelRef,
     pub planner: ModelRef,
     pub embedder: ModelRef,
+    /// Optional small/fast model for cost-sensitive tasks (title gen, summaries, etc.).
+    pub small: Option<ModelRef>,
 }
 
 impl ModelRoles {
@@ -20,6 +22,7 @@ impl ModelRoles {
             evaluator: model.clone(),
             planner: model.clone(),
             embedder: ModelRef::new("openai", "text-embedding-3-small"),
+            small: None,
         }
     }
 
@@ -44,7 +47,14 @@ impl ModelRoles {
             embedder: embedder
                 .and_then(ModelRef::parse)
                 .unwrap_or_else(|| ModelRef::new("openai", "text-embedding-3-small")),
+            small: None,
         }
+    }
+
+    /// Set the small model (builder pattern).
+    pub fn with_small(mut self, small: ModelRef) -> Self {
+        self.small = Some(small);
+        self
     }
 }
 
@@ -61,6 +71,7 @@ mod tests {
         assert_eq!(roles.planner, model);
         assert_eq!(roles.embedder.provider, "openai");
         assert_eq!(roles.embedder.model, "text-embedding-3-small");
+        assert!(roles.small.is_none());
     }
 
     #[test]
@@ -77,6 +88,7 @@ mod tests {
         assert_eq!(roles.evaluator.model, "claude-opus-4");
         assert_eq!(roles.planner.model, "claude-haiku-3.5");
         assert_eq!(roles.embedder.model, "text-embedding-ada-002");
+        assert!(roles.small.is_none());
     }
 
     #[test]
@@ -114,5 +126,13 @@ mod tests {
             None,
         );
         assert_eq!(roles.executor, default); // Falls back
+    }
+
+    #[test]
+    fn test_with_small() {
+        let model = ModelRef::new("anthropic", "claude-sonnet-4");
+        let small = ModelRef::new("anthropic", "claude-haiku-3.5");
+        let roles = ModelRoles::from_single(model).with_small(small.clone());
+        assert_eq!(roles.small, Some(small));
     }
 }

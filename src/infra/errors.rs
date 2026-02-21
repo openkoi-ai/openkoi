@@ -12,6 +12,13 @@ pub enum OpenKoiError {
         retriable: bool,
     },
 
+    #[error("Context overflow for {provider}/{model}: {message}")]
+    ContextOverflow {
+        provider: String,
+        model: String,
+        message: String,
+    },
+
     #[error("Rate limited by '{provider}', retry after {retry_after_ms}ms")]
     RateLimited {
         provider: String,
@@ -71,5 +78,9 @@ impl OpenKoiError {
                 ..
             } | OpenKoiError::RateLimited { .. }
         )
+    }
+
+    pub fn is_context_overflow(&self) -> bool {
+        matches!(self, OpenKoiError::ContextOverflow { .. })
     }
 }

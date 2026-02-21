@@ -123,6 +123,12 @@ impl ModelProvider for OpenAICodexProvider {
                 supports_streaming: true,
                 input_price_per_mtok: 0.0,
                 output_price_per_mtok: 0.0,
+                can_reason: true,
+                supports_vision: true,
+                supports_attachments: true,
+                family: Some("gpt-5.1-codex".into()),
+                release_date: Some("2025-05-16".into()),
+                ..Default::default()
             },
             ModelInfo {
                 id: "gpt-5.1-codex-max".into(),
@@ -133,6 +139,12 @@ impl ModelProvider for OpenAICodexProvider {
                 supports_streaming: true,
                 input_price_per_mtok: 0.0,
                 output_price_per_mtok: 0.0,
+                can_reason: true,
+                supports_vision: true,
+                supports_attachments: true,
+                family: Some("gpt-5.1-codex".into()),
+                release_date: Some("2025-05-16".into()),
+                ..Default::default()
             },
             ModelInfo {
                 id: "gpt-5.1-codex-mini".into(),
@@ -143,6 +155,11 @@ impl ModelProvider for OpenAICodexProvider {
                 supports_streaming: true,
                 input_price_per_mtok: 0.0,
                 output_price_per_mtok: 0.0,
+                supports_vision: true,
+                supports_attachments: true,
+                family: Some("gpt-5.1-codex".into()),
+                release_date: Some("2025-05-16".into()),
+                ..Default::default()
             },
             ModelInfo {
                 id: "gpt-5.2-codex".into(),
@@ -153,6 +170,12 @@ impl ModelProvider for OpenAICodexProvider {
                 supports_streaming: true,
                 input_price_per_mtok: 0.0,
                 output_price_per_mtok: 0.0,
+                can_reason: true,
+                supports_vision: true,
+                supports_attachments: true,
+                family: Some("gpt-5.2-codex".into()),
+                release_date: Some("2025-07-01".into()),
+                ..Default::default()
             },
             ModelInfo {
                 id: "gpt-5.3-codex".into(),
@@ -163,6 +186,12 @@ impl ModelProvider for OpenAICodexProvider {
                 supports_streaming: true,
                 input_price_per_mtok: 0.0,
                 output_price_per_mtok: 0.0,
+                can_reason: true,
+                supports_vision: true,
+                supports_attachments: true,
+                family: Some("gpt-5.3-codex".into()),
+                release_date: Some("2025-10-01".into()),
+                ..Default::default()
             },
         ]
     }

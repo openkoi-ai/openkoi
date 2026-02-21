@@ -1,6 +1,7 @@
 // src/cli/chat.rs — Interactive REPL
 
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use crate::core::orchestrator::{Orchestrator, SessionContext};
 use crate::core::safety::SafetyChecker;
@@ -13,6 +14,7 @@ use crate::memory::store::Store;
 use crate::patterns::event_logger::{EventLogger, EventType, UsageEvent};
 use crate::patterns::miner::PatternMiner;
 use crate::plugins::mcp::McpManager;
+use crate::provider::roles::ModelRoles;
 use crate::provider::{ModelProvider, ModelRef, ToolDef};
 use crate::skills::registry::SkillRegistry;
 use crate::soul::loader;
@@ -43,13 +45,16 @@ pub async fn run_chat(
     provider: Arc<dyn ModelProvider>,
     model_ref: &ModelRef,
     config: &Config,
-    _session_id: Option<&str>,
-    store: Option<&Store>,
+    store: Option<Arc<Mutex<Store>>>,
     mcp_tools: Vec<ToolDef>,
     mcp_manager: Option<&mut McpManager>,
     integrations: Option<&IntegrationRegistry>,
 ) -> anyhow::Result<()> {
-    let memory_count = store.map(|s| s.count_learnings().unwrap_or(0)).unwrap_or(0);
+    let memory_count = store
+        .as_ref()
+        .and_then(|s| s.lock().ok())
+        .and_then(|s| s.count_learnings().ok())
+        .unwrap_or(0);
 
     eprintln!(
         "openkoi v{} | {} | memory: {} entries | $0.00 spent\n",
@@ -86,7 +91,7 @@ pub async fn run_chat(
 
         // Handle slash commands
         if trimmed.starts_with('/') {
-            handle_slash_command(trimmed, &mut state, store, &provider);
+            handle_slash_command(trimmed, &mut state, &store, &provider);
             continue;
         }
 
@@ -102,20 +107,26 @@ pub async fn run_chat(
         engine_config.quality_threshold = state.quality_threshold;
         let safety = SafetyChecker::from_config(&config.iteration, &config.safety);
 
-        let ranked_skills = selector.select(
-            &task.description,
-            task.category.as_deref(),
-            skill_registry.all(),
-            store,
-        );
+        let ranked_skills = {
+            let store_guard = store.as_ref().and_then(|s| s.lock().ok());
+            selector.select(
+                &task.description,
+                task.category.as_deref(),
+                skill_registry.all(),
+                store_guard.as_deref(),
+            )
+        };
 
-        let recall = match store {
-            Some(s) => {
-                let token_budget = engine_config.token_budget / 10;
-                recall::recall(s, trimmed, task.category.as_deref(), token_budget)
-                    .unwrap_or_default()
+        let recall = {
+            let store_guard = store.as_ref().and_then(|s| s.lock().ok());
+            match store_guard.as_deref() {
+                Some(s) => {
+                    let token_budget = engine_config.token_budget / 10;
+                    recall::recall(s, trimmed, task.category.as_deref(), token_budget)
+                        .unwrap_or_default()
+                }
+                None => HistoryRecall::default(),
             }
-            None => HistoryRecall::default(),
         };
 
         let ctx = SessionContext {
@@ -128,10 +139,17 @@ pub async fn run_chat(
 
         let mut orchestrator = Orchestrator::new(
             provider.clone(),
-            state.model_ref.model.clone(),
+            ModelRoles::from_config(
+                state.model_ref.clone(),
+                config.models.executor.as_deref(),
+                config.models.evaluator.as_deref(),
+                config.models.planner.as_deref(),
+                config.models.embedder.as_deref(),
+            ),
             engine_config,
             safety,
             skill_registry.clone(),
+            store.clone(),
         );
 
         let mcp_ref = mcp.as_deref_mut();
@@ -155,16 +173,18 @@ pub async fn run_chat(
                 );
 
                 // Log usage event
-                if let Some(s) = store {
-                    let event_logger = EventLogger::new(s);
-                    let _ = event_logger.log(&UsageEvent {
-                        event_type: EventType::Task,
-                        channel: "chat".into(),
-                        description: trimmed.to_string(),
-                        category: None,
-                        skills_used: result.skills_used.clone(),
-                        score: Some(result.final_score as f32),
-                    });
+                if let Some(ref s) = store {
+                    if let Ok(locked) = s.lock() {
+                        let event_logger = EventLogger::new(&locked);
+                        let _ = event_logger.log(&UsageEvent {
+                            event_type: EventType::Task,
+                            channel: "chat".into(),
+                            description: trimmed.to_string(),
+                            category: None,
+                            skills_used: result.skills_used.clone(),
+                            score: Some(result.final_score as f32),
+                        });
+                    }
                 }
             }
             Err(e) => {
@@ -198,7 +218,7 @@ fn read_input() -> Option<String> {
 fn handle_slash_command(
     input: &str,
     state: &mut ChatState,
-    store: Option<&Store>,
+    store: &Option<Arc<Mutex<Store>>>,
     provider: &Arc<dyn ModelProvider>,
 ) {
     let parts: Vec<&str> = input.splitn(2, ' ').collect();
@@ -216,9 +236,11 @@ fn handle_slash_command(
                 "  Session: {} task(s) | {} tokens | ${:.2}",
                 state.task_count, state.total_tokens, state.total_cost
             );
-            if let Some(s) = store {
-                let learnings = s.count_learnings().unwrap_or(0);
-                eprintln!("  Memory: {} learnings", learnings);
+            if let Some(ref s) = store {
+                if let Ok(locked) = s.lock() {
+                    let learnings = locked.count_learnings().unwrap_or(0);
+                    eprintln!("  Memory: {} learnings", learnings);
+                }
             }
         }
 
@@ -304,9 +326,9 @@ fn handle_slash_command(
             }
         }
 
-        "/learn" => match store {
-            Some(s) => {
-                let miner = PatternMiner::new(s);
+        "/learn" => match store.as_ref().and_then(|s| s.lock().ok()) {
+            Some(locked) => {
+                let miner = PatternMiner::new(&locked);
                 match miner.mine(30) {
                     Ok(patterns) if patterns.is_empty() => {
                         eprintln!("  No new patterns detected (need more usage data).");
@@ -358,7 +380,7 @@ fn handle_slash_command(
             eprintln!("  /learn             Show detected usage patterns");
             eprintln!("  /cost              Show cost breakdown");
             eprintln!("  /help              Show this help");
-            eprintln!("  quit / exit        End session");
+            eprintln!("  /quit, quit, exit  End session");
         }
 
         _ => {

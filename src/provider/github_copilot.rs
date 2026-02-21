@@ -50,6 +50,9 @@ fn static_models() -> Vec<ModelInfo> {
             supports_streaming: true,
             input_price_per_mtok: 0.0,
             output_price_per_mtok: 0.0,
+            supports_vision: true,
+            family: Some("gpt-4o".into()),
+            ..Default::default()
         },
         ModelInfo {
             id: "gpt-4o-mini".into(),
@@ -60,6 +63,9 @@ fn static_models() -> Vec<ModelInfo> {
             supports_streaming: true,
             input_price_per_mtok: 0.0,
             output_price_per_mtok: 0.0,
+            supports_vision: true,
+            family: Some("gpt-4o".into()),
+            ..Default::default()
         },
         ModelInfo {
             id: "gpt-3.5-turbo".into(),
@@ -70,6 +76,8 @@ fn static_models() -> Vec<ModelInfo> {
             supports_streaming: true,
             input_price_per_mtok: 0.0,
             output_price_per_mtok: 0.0,
+            family: Some("gpt-3.5".into()),
+            ..Default::default()
         },
     ]
 }
@@ -217,6 +225,7 @@ impl GithubCopilotProvider {
                         // Copilot is included with GitHub subscription
                         input_price_per_mtok: 0.0,
                         output_price_per_mtok: 0.0,
+                        ..Default::default()
                     })
                 })
                 .collect::<Vec<_>>(),

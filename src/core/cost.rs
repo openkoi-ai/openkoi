@@ -2,7 +2,41 @@
 
 use std::collections::HashMap;
 
-use crate::provider::TokenUsage;
+use crate::provider::{ModelInfo, TokenUsage};
+
+/// Pricing snapshot for cost calculation.
+/// Can be extracted from `ModelInfo` or looked up by model name.
+#[derive(Debug, Clone, Copy)]
+pub struct Pricing {
+    pub input_per_mtok: f64,
+    pub output_per_mtok: f64,
+    pub cache_read_per_mtok: f64,
+    pub cache_write_per_mtok: f64,
+}
+
+impl Pricing {
+    /// Extract pricing from a `ModelInfo`.
+    pub fn from_model_info(info: &ModelInfo) -> Self {
+        Self {
+            input_per_mtok: info.input_price_per_mtok,
+            output_per_mtok: info.output_price_per_mtok,
+            cache_read_per_mtok: info.cache_read_price_per_mtok,
+            cache_write_per_mtok: info.cache_write_price_per_mtok,
+        }
+    }
+
+    /// Look up pricing by model name string (legacy fallback).
+    pub fn from_model_name(model: &str) -> Self {
+        let (input, output) = model_pricing(model);
+        Self {
+            input_per_mtok: input,
+            output_per_mtok: output,
+            // Legacy heuristic: cache read = 10% of input, write = 125% of input
+            cache_read_per_mtok: input * 0.1,
+            cache_write_per_mtok: input * 1.25,
+        }
+    }
+}
 
 /// Tracks token costs across models and phases, with analytics capabilities.
 pub struct CostTracker {
@@ -36,32 +70,60 @@ impl CostTracker {
     }
 
     pub fn record(&mut self, model: &str, usage: &TokenUsage) {
-        let cost = calculate_cost(model, usage);
-        self.total_usd += cost;
-        *self.by_model.entry(model.into()).or_default() += cost;
-        let tokens = self.tokens_by_model.entry(model.into()).or_insert((0, 0));
-        tokens.0 += usage.input_tokens as u64;
-        tokens.1 += usage.output_tokens as u64;
-        *self.calls_by_model.entry(model.into()).or_default() += 1;
+        let pricing = Pricing::from_model_name(model);
+        self.record_internal(model, usage, &pricing, None, None);
     }
 
     pub fn record_with_phase(&mut self, model: &str, usage: &TokenUsage, phase: &str) {
-        let cost = calculate_cost(model, usage);
-        self.total_usd += cost;
-        *self.by_model.entry(model.into()).or_default() += cost;
-        *self.by_phase.entry(phase.into()).or_default() += cost;
-        let tokens = self.tokens_by_model.entry(model.into()).or_insert((0, 0));
-        tokens.0 += usage.input_tokens as u64;
-        tokens.1 += usage.output_tokens as u64;
-        *self.calls_by_model.entry(model.into()).or_default() += 1;
+        let pricing = Pricing::from_model_name(model);
+        self.record_internal(model, usage, &pricing, Some(phase), None);
     }
 
     /// Record cost attributed to a specific task.
     pub fn record_for_task(&mut self, model: &str, usage: &TokenUsage, task_id: &str) {
-        let cost = calculate_cost(model, usage);
+        let pricing = Pricing::from_model_name(model);
+        self.record_internal(model, usage, &pricing, None, Some(task_id));
+    }
+
+    /// Record using explicit `ModelInfo` pricing (preferred — no string matching).
+    pub fn record_with_model_info(&mut self, info: &ModelInfo, usage: &TokenUsage) {
+        let pricing = Pricing::from_model_info(info);
+        self.record_internal(&info.id, usage, &pricing, None, None);
+    }
+
+    /// Record using explicit `ModelInfo` pricing, with phase.
+    pub fn record_with_model_info_and_phase(
+        &mut self,
+        info: &ModelInfo,
+        usage: &TokenUsage,
+        phase: &str,
+    ) {
+        let pricing = Pricing::from_model_info(info);
+        self.record_internal(&info.id, usage, &pricing, Some(phase), None);
+    }
+
+    /// Record using explicit `Pricing` (for callers that already have pricing).
+    pub fn record_with_pricing(&mut self, model: &str, usage: &TokenUsage, pricing: &Pricing) {
+        self.record_internal(model, usage, pricing, None, None);
+    }
+
+    fn record_internal(
+        &mut self,
+        model: &str,
+        usage: &TokenUsage,
+        pricing: &Pricing,
+        phase: Option<&str>,
+        task_id: Option<&str>,
+    ) {
+        let cost = calculate_cost_with_pricing(usage, pricing);
         self.total_usd += cost;
         *self.by_model.entry(model.into()).or_default() += cost;
-        *self.by_task.entry(task_id.into()).or_default() += cost;
+        if let Some(p) = phase {
+            *self.by_phase.entry(p.into()).or_default() += cost;
+        }
+        if let Some(t) = task_id {
+            *self.by_task.entry(t.into()).or_default() += cost;
+        }
         let tokens = self.tokens_by_model.entry(model.into()).or_insert((0, 0));
         tokens.0 += usage.input_tokens as u64;
         tokens.1 += usage.output_tokens as u64;
@@ -207,17 +269,28 @@ pub struct ModelCostEntry {
     pub output_tokens: u64,
 }
 
-/// Calculate cost in USD for a given model and token usage.
+/// Calculate cost in USD for a given model and token usage (legacy string-based lookup).
 pub fn calculate_cost(model: &str, usage: &TokenUsage) -> f64 {
-    let (input_price, output_price) = model_pricing(model);
-    let input_cost = (usage.input_tokens as f64 / 1_000_000.0) * input_price;
-    let output_cost = (usage.output_tokens as f64 / 1_000_000.0) * output_price;
+    let pricing = Pricing::from_model_name(model);
+    calculate_cost_with_pricing(usage, &pricing)
+}
 
-    // Cached tokens are cheaper (Anthropic)
-    let cache_read_cost = (usage.cache_read_tokens as f64 / 1_000_000.0) * (input_price * 0.1);
-    let cache_write_cost = (usage.cache_write_tokens as f64 / 1_000_000.0) * (input_price * 1.25);
+/// Calculate cost in USD using explicit pricing (preferred over string-based lookup).
+pub fn calculate_cost_with_pricing(usage: &TokenUsage, pricing: &Pricing) -> f64 {
+    let input_cost = (usage.input_tokens as f64 / 1_000_000.0) * pricing.input_per_mtok;
+    let output_cost = (usage.output_tokens as f64 / 1_000_000.0) * pricing.output_per_mtok;
+    let cache_read_cost =
+        (usage.cache_read_tokens as f64 / 1_000_000.0) * pricing.cache_read_per_mtok;
+    let cache_write_cost =
+        (usage.cache_write_tokens as f64 / 1_000_000.0) * pricing.cache_write_per_mtok;
 
     input_cost + output_cost + cache_read_cost + cache_write_cost
+}
+
+/// Calculate cost from a `ModelInfo` and token usage.
+pub fn calculate_cost_from_model_info(info: &ModelInfo, usage: &TokenUsage) -> f64 {
+    let pricing = Pricing::from_model_info(info);
+    calculate_cost_with_pricing(usage, &pricing)
 }
 
 /// Returns (input_price_per_mtok, output_price_per_mtok).
@@ -243,6 +316,12 @@ pub fn model_pricing(model: &str) -> (f64, f64) {
         m if m.contains("gemini-2.0-flash") => (0.1, 0.4),
         m if m.contains("gemini-1.5-pro") => (1.25, 5.0),
         m if m.contains("gemini-1.5-flash") => (0.075, 0.3),
+
+        // Kimi / Moonshot AI
+        m if m.contains("kimi-k2.5") => (0.55, 2.19),
+        m if m.contains("moonshot-v1-128k") => (8.57, 8.57),
+        m if m.contains("moonshot-v1-32k") => (3.43, 3.43),
+        m if m.contains("moonshot-v1-8k") => (1.71, 1.71),
 
         // Ollama / local (free)
         m if m.contains("llama")
@@ -490,5 +569,107 @@ mod tests {
         let sonnet_cost = calculate_cost("claude-sonnet-4", &usage(1000, 500));
         let gpt_cost = calculate_cost("gpt-4.1", &usage(1000, 500));
         assert!((t.total_usd - sonnet_cost - gpt_cost).abs() < 0.0001);
+    }
+
+    // ─── Pricing / ModelInfo-based cost tests ───────────────────
+
+    #[test]
+    fn test_pricing_from_model_info() {
+        let info = ModelInfo {
+            id: "test-model".into(),
+            name: "Test".into(),
+            input_price_per_mtok: 5.0,
+            output_price_per_mtok: 15.0,
+            cache_read_price_per_mtok: 0.5,
+            cache_write_price_per_mtok: 6.25,
+            ..Default::default()
+        };
+        let p = Pricing::from_model_info(&info);
+        assert_eq!(p.input_per_mtok, 5.0);
+        assert_eq!(p.output_per_mtok, 15.0);
+        assert_eq!(p.cache_read_per_mtok, 0.5);
+        assert_eq!(p.cache_write_per_mtok, 6.25);
+    }
+
+    #[test]
+    fn test_pricing_from_model_name_fallback() {
+        let p = Pricing::from_model_name("claude-sonnet-4");
+        assert_eq!(p.input_per_mtok, 3.0);
+        assert_eq!(p.output_per_mtok, 15.0);
+        // Legacy heuristic: cache_read = input * 0.1, cache_write = input * 1.25
+        assert!((p.cache_read_per_mtok - 0.3).abs() < 0.001);
+        assert!((p.cache_write_per_mtok - 3.75).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_calculate_cost_with_pricing_struct() {
+        let pricing = Pricing {
+            input_per_mtok: 3.0,
+            output_per_mtok: 15.0,
+            cache_read_per_mtok: 0.3,
+            cache_write_per_mtok: 3.75,
+        };
+        let u = TokenUsage {
+            input_tokens: 1_000_000,
+            output_tokens: 0,
+            cache_read_tokens: 500_000,
+            cache_write_tokens: 200_000,
+        };
+        let cost = calculate_cost_with_pricing(&u, &pricing);
+        // input: 1M × $3 = $3.00
+        // cache read: 500K × $0.3 = $0.15
+        // cache write: 200K × $3.75 = $0.75
+        let expected = 3.0 + 0.15 + 0.75;
+        assert!((cost - expected).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_calculate_cost_from_model_info_fn() {
+        let info = ModelInfo {
+            id: "claude-sonnet-4-20250514".into(),
+            name: "Claude Sonnet 4".into(),
+            input_price_per_mtok: 3.0,
+            output_price_per_mtok: 15.0,
+            cache_read_price_per_mtok: 0.3,
+            cache_write_price_per_mtok: 3.75,
+            ..Default::default()
+        };
+        let u = usage(1_000_000, 500_000);
+        let cost = calculate_cost_from_model_info(&info, &u);
+        // Same as test_calculate_cost_basic: $3 + $7.50 = $10.50
+        assert!((cost - 10.50).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_tracker_record_with_model_info() {
+        let info = ModelInfo {
+            id: "claude-sonnet-4-20250514".into(),
+            name: "Claude Sonnet 4".into(),
+            input_price_per_mtok: 3.0,
+            output_price_per_mtok: 15.0,
+            cache_read_price_per_mtok: 0.3,
+            cache_write_price_per_mtok: 3.75,
+            ..Default::default()
+        };
+        let mut t = CostTracker::new();
+        t.record_with_model_info(&info, &usage(1000, 500));
+        assert!(t.total_usd > 0.0);
+        assert!(t.by_model.contains_key("claude-sonnet-4-20250514"));
+        assert_eq!(t.total_calls(), 1);
+    }
+
+    #[test]
+    fn test_tracker_record_with_model_info_and_phase() {
+        let info = ModelInfo {
+            id: "gpt-4.1".into(),
+            name: "GPT-4.1".into(),
+            input_price_per_mtok: 2.0,
+            output_price_per_mtok: 8.0,
+            ..Default::default()
+        };
+        let mut t = CostTracker::new();
+        t.record_with_model_info_and_phase(&info, &usage(1000, 500), "execute");
+        assert!(t.by_phase.contains_key("execute"));
+        assert!(t.by_model.contains_key("gpt-4.1"));
     }
 }

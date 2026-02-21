@@ -82,6 +82,21 @@ pub enum IterationDecision {
     AbortRegression,
 }
 
+impl std::fmt::Display for IterationDecision {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IterationDecision::Continue => write!(f, "continue"),
+            IterationDecision::Accept => write!(f, "accept"),
+            IterationDecision::AcceptBest => write!(f, "accept_best"),
+            IterationDecision::SkipEval => write!(f, "skip_eval"),
+            IterationDecision::Escalate => write!(f, "escalate"),
+            IterationDecision::AbortBudget => write!(f, "abort_budget"),
+            IterationDecision::AbortTimeout => write!(f, "abort_timeout"),
+            IterationDecision::AbortRegression => write!(f, "abort_regression"),
+        }
+    }
+}
+
 /// Input to a task execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskInput {

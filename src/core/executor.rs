@@ -2,7 +2,10 @@
 
 use std::sync::Arc;
 
+use super::overflow;
+use super::truncation;
 use super::types::*;
+use crate::infra::errors::OpenKoiError;
 use crate::integrations::registry::IntegrationRegistry;
 use crate::plugins::mcp::McpManager;
 use crate::provider::{ChatRequest, Message, ModelProvider, StopReason, ToolDef};
@@ -45,7 +48,7 @@ impl Executor {
         tools: &[ToolDef],
         mcp: Option<&mut McpManager>,
         integrations: Option<&IntegrationRegistry>,
-    ) -> anyhow::Result<ExecutionOutput> {
+    ) -> Result<ExecutionOutput, OpenKoiError> {
         // On iteration 0 there are no conversation messages, so we send a
         // single user message prompting the model to begin.
         let mut messages = if context.messages.is_empty() {
@@ -76,7 +79,7 @@ impl Executor {
                 .provider
                 .chat(request)
                 .await
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
+                .map_err(|e| overflow::classify_error_with_model(e, &self.model_id))?;
 
             // Accumulate usage
             total_usage.input_tokens += response.usage.input_tokens;
@@ -100,10 +103,19 @@ impl Executor {
             }
             messages.push(Message::assistant(&response.content));
 
-            // Dispatch each tool call
+            // Dispatch each tool call (truncate outputs to prevent context blowup)
             for tc in &response.tool_calls {
                 let result = dispatch_tool_call(tc, &mut mcp, integrations).await;
-                messages.push(Message::tool_result(&tc.id, &result));
+                let truncated = truncation::truncate_tool_output(&result);
+                if truncated.was_truncated {
+                    tracing::info!(
+                        tool = %tc.name,
+                        original_bytes = truncated.original_bytes,
+                        original_lines = truncated.original_lines,
+                        "Truncated tool output",
+                    );
+                }
+                messages.push(Message::tool_result(&tc.id, &truncated.content));
             }
 
             // If the model said it's done (EndTurn) even with tool calls, break

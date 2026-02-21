@@ -7,6 +7,7 @@
 // Approved patterns with cron schedules are evaluated every 60 seconds.
 
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::core::orchestrator::{Orchestrator, SessionContext};
@@ -19,6 +20,7 @@ use crate::learner::skill_selector::SkillSelector;
 use crate::memory::recall::{self, HistoryRecall};
 use crate::memory::store::Store;
 use crate::patterns::event_logger::{EventLogger, EventType, UsageEvent};
+use crate::provider::roles::ModelRoles;
 use crate::provider::{ModelProvider, ModelRef, ToolDef};
 use crate::skills::registry::SkillRegistry;
 use crate::soul::loader;
@@ -39,7 +41,7 @@ pub struct DaemonContext {
     pub provider: Arc<dyn ModelProvider>,
     pub model_ref: ModelRef,
     pub config: Config,
-    pub store: Option<Store>,
+    pub store: Option<Arc<Mutex<Store>>>,
     pub skill_registry: Arc<SkillRegistry>,
     pub mcp_tools: Vec<ToolDef>,
 }
@@ -104,6 +106,147 @@ pub async fn run_daemon(
     Ok(())
 }
 
+/// Parsed command from a mention.
+enum DaemonCommand {
+    /// Run a task with the given description.
+    Run(String),
+    /// Report current daemon status.
+    Status,
+    /// Report token/cost information.
+    Cost,
+    /// Show available commands.
+    Help,
+}
+
+/// Parse the extracted mention text into a daemon command.
+///
+/// Recognised prefixes:
+///   `run <description>` — explicit task execution
+///   `status`            — report recent tasks / daemon health
+///   `cost`              — report token & cost totals
+///   `help`              — list available commands
+///
+/// Anything without a recognised prefix is treated as a task description
+/// (equivalent to `run <text>`).
+fn parse_command(text: &str) -> DaemonCommand {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return DaemonCommand::Help;
+    }
+
+    let lower = trimmed.to_lowercase();
+
+    if lower == "status" {
+        return DaemonCommand::Status;
+    }
+    if lower == "cost" || lower == "costs" {
+        return DaemonCommand::Cost;
+    }
+    if lower == "help" || lower == "?" {
+        return DaemonCommand::Help;
+    }
+
+    // "run <description>"
+    if lower.starts_with("run ") {
+        let description = trimmed[4..].trim(); // preserve original casing
+        if description.is_empty() {
+            return DaemonCommand::Help;
+        }
+        return DaemonCommand::Run(description.to_string());
+    }
+
+    // Default: treat entire text as a task description
+    DaemonCommand::Run(trimmed.to_string())
+}
+
+/// Format a status report from the store.
+fn format_status(ctx: &DaemonContext) -> String {
+    let store_arc = match ctx.store.as_ref() {
+        Some(s) => s,
+        None => return "No store configured — task history unavailable.".to_string(),
+    };
+    let store = match store_arc.lock() {
+        Ok(g) => g,
+        Err(_) => return "Failed to access store.".to_string(),
+    };
+
+    // Query recent events as a proxy for recent tasks
+    let since = (chrono::Utc::now() - chrono::Duration::hours(24)).to_rfc3339();
+    let events = store.query_events_since(&since).unwrap_or_default();
+
+    if events.is_empty() {
+        return "No tasks executed in the last 24 hours.".to_string();
+    }
+
+    let task_count = events.iter().filter(|e| e.event_type == "task").count();
+    let avg_score: f64 = {
+        let scores: Vec<f64> = events.iter().filter_map(|e| e.score).collect();
+        if scores.is_empty() {
+            0.0
+        } else {
+            scores.iter().sum::<f64>() / scores.len() as f64
+        }
+    };
+
+    let mut lines = vec![format!(
+        "OpenKoi status (last 24h): {} task(s), avg score {:.1}/10",
+        task_count, avg_score
+    )];
+
+    // Show last 5 events
+    let recent: Vec<_> = events.iter().rev().take(5).collect();
+    for ev in recent {
+        let desc = ev.description.as_deref().unwrap_or("(no description)");
+        let score_str = ev
+            .score
+            .map(|s| format!(" [{:.1}]", s))
+            .unwrap_or_default();
+        lines.push(format!("  • {}{}", truncate(desc, 60), score_str));
+    }
+
+    lines.join("\n")
+}
+
+/// Format a cost report from the store.
+fn format_cost(ctx: &DaemonContext) -> String {
+    let store_arc = match ctx.store.as_ref() {
+        Some(s) => s,
+        None => return "No store configured — cost data unavailable.".to_string(),
+    };
+    let store = match store_arc.lock() {
+        Ok(g) => g,
+        Err(_) => return "Failed to access store.".to_string(),
+    };
+
+    let since = (chrono::Utc::now() - chrono::Duration::hours(24)).to_rfc3339();
+    let events = store.query_events_since(&since).unwrap_or_default();
+
+    if events.is_empty() {
+        return "No usage recorded in the last 24 hours.".to_string();
+    }
+
+    let total_events = events.len();
+    let task_events = events.iter().filter(|e| e.event_type == "task").count();
+
+    format!(
+        "OpenKoi cost (last 24h): {} event(s), {} task(s).\nDetailed cost tracking is available via `openkoi dashboard`.",
+        total_events, task_events
+    )
+}
+
+/// Help text sent back when a user sends `help` or an empty mention.
+fn format_help() -> String {
+    [
+        "OpenKoi commands:",
+        "  `@openkoi <task description>` — run a task",
+        "  `@openkoi run <description>`  — run a task (explicit)",
+        "  `@openkoi status`             — recent task summary",
+        "  `@openkoi cost`               — usage & cost report",
+        "  `@openkoi help`               — this message",
+    ]
+    .join("\n")
+}
+
 /// Handle an incoming watch event.
 ///
 /// - `Mention`: If auto_execute is on, run the message content as a task
@@ -140,29 +283,72 @@ async fn handle_watch_event(
                 truncate(&event.payload, 100)
             );
 
-            if !auto_execute {
-                tracing::debug!("Auto-execute disabled; skipping task execution for mention");
-                return;
-            }
+            let command = parse_command(&event.payload);
 
-            // Execute the mention content as a task
-            let task_description = event.payload.clone();
-            if task_description.trim().is_empty() {
-                tracing::debug!("Empty mention payload; skipping");
-                return;
-            }
-
-            let result = execute_daemon_task(ctx, registry, &task_description).await;
-
-            // Deliver the result back to the same channel
-            match result {
-                Ok(output) => {
-                    deliver_result(registry, &event.integration_id, &event.source, &output).await;
+            match command {
+                DaemonCommand::Help => {
+                    deliver_result(registry, &event.integration_id, &event.source, &format_help())
+                        .await;
                 }
-                Err(e) => {
-                    let err_msg = format!("Task failed: {e}");
-                    tracing::error!("[{}] {}", event.integration_id, err_msg);
-                    deliver_result(registry, &event.integration_id, &event.source, &err_msg).await;
+                DaemonCommand::Status => {
+                    let report = format_status(ctx);
+                    deliver_result(registry, &event.integration_id, &event.source, &report).await;
+                }
+                DaemonCommand::Cost => {
+                    let report = format_cost(ctx);
+                    deliver_result(registry, &event.integration_id, &event.source, &report).await;
+                }
+                DaemonCommand::Run(task_description) => {
+                    if !auto_execute {
+                        tracing::debug!(
+                            "Auto-execute disabled; skipping task execution for mention"
+                        );
+                        deliver_result(
+                            registry,
+                            &event.integration_id,
+                            &event.source,
+                            "Auto-execute is disabled. Enable it in your config to run tasks via mentions.",
+                        )
+                        .await;
+                        return;
+                    }
+
+                    if task_description.trim().is_empty() {
+                        tracing::debug!("Empty task description; sending help");
+                        deliver_result(
+                            registry,
+                            &event.integration_id,
+                            &event.source,
+                            &format_help(),
+                        )
+                        .await;
+                        return;
+                    }
+
+                    let result = execute_daemon_task(ctx, registry, &task_description).await;
+
+                    match result {
+                        Ok(output) => {
+                            deliver_result(
+                                registry,
+                                &event.integration_id,
+                                &event.source,
+                                &output,
+                            )
+                            .await;
+                        }
+                        Err(e) => {
+                            let err_msg = format!("Task failed: {e}");
+                            tracing::error!("[{}] {}", event.integration_id, err_msg);
+                            deliver_result(
+                                registry,
+                                &event.integration_id,
+                                &event.source,
+                                &err_msg,
+                            )
+                            .await;
+                        }
+                    }
                 }
             }
         }
@@ -187,15 +373,16 @@ async fn execute_daemon_task(
 
     // Select relevant skills
     let selector = SkillSelector::new();
+    let store_guard = ctx.store.as_ref().and_then(|s| s.lock().ok());
     let ranked_skills = selector.select(
         &task.description,
         task.category.as_deref(),
         ctx.skill_registry.all(),
-        ctx.store.as_ref(),
+        store_guard.as_deref(),
     );
 
     // Recall from memory
-    let recall = match ctx.store.as_ref() {
+    let recall = match store_guard.as_deref() {
         Some(s) => {
             let token_budget = engine_config.token_budget / 10;
             recall::recall(s, task_description, task.category.as_deref(), token_budget)
@@ -203,6 +390,7 @@ async fn execute_daemon_task(
         }
         None => HistoryRecall::default(),
     };
+    drop(store_guard);
 
     let session_ctx = SessionContext {
         soul,
@@ -214,10 +402,17 @@ async fn execute_daemon_task(
 
     let mut orchestrator = Orchestrator::new(
         ctx.provider.clone(),
-        ctx.model_ref.model.clone(),
+        ModelRoles::from_config(
+            ctx.model_ref.clone(),
+            ctx.config.models.executor.as_deref(),
+            ctx.config.models.evaluator.as_deref(),
+            ctx.config.models.planner.as_deref(),
+            ctx.config.models.embedder.as_deref(),
+        ),
         engine_config,
         safety,
         ctx.skill_registry.clone(),
+        ctx.store.clone(),
     );
 
     let integrations = if registry.list().is_empty() {
@@ -231,16 +426,18 @@ async fn execute_daemon_task(
         .await?;
 
     // Log the usage event
-    if let Some(s) = ctx.store.as_ref() {
-        let event_logger = EventLogger::new(s);
-        let _ = event_logger.log(&UsageEvent {
-            event_type: EventType::Task,
-            channel: "daemon".into(),
-            description: task_description.to_string(),
-            category: None,
-            skills_used: result.skills_used.clone(),
-            score: Some(result.final_score as f32),
-        });
+    if let Some(ref s) = ctx.store {
+        if let Ok(locked) = s.lock() {
+            let event_logger = EventLogger::new(&locked);
+            let _ = event_logger.log(&UsageEvent {
+                event_type: EventType::Task,
+                channel: "daemon".into(),
+                description: task_description.to_string(),
+                category: None,
+                skills_used: result.skills_used.clone(),
+                score: Some(result.final_score as f32),
+            });
+        }
     }
 
     tracing::info!(
@@ -297,11 +494,16 @@ async fn deliver_result(
 /// expression, and checks whether the expression matches the current
 /// minute.  If it does, the pattern's description is executed as a task.
 async fn run_scheduled_patterns(ctx: &DaemonContext, registry: &IntegrationRegistry) {
-    let Some(store) = ctx.store.as_ref() else {
-        return;
+    let store_arc = match ctx.store.as_ref() {
+        Some(s) => s,
+        None => return,
+    };
+    let store_guard = match store_arc.lock() {
+        Ok(g) => g,
+        Err(_) => return,
     };
 
-    let patterns = match store.query_approved_patterns() {
+    let patterns = match store_guard.query_approved_patterns() {
         Ok(p) => p,
         Err(e) => {
             tracing::debug!("Failed to query approved patterns: {}", e);
@@ -312,6 +514,9 @@ async fn run_scheduled_patterns(ctx: &DaemonContext, registry: &IntegrationRegis
     if patterns.is_empty() {
         return;
     }
+
+    // Drop the lock before executing tasks (which also need the store)
+    drop(store_guard);
 
     let now = chrono::Utc::now();
 
@@ -435,6 +640,29 @@ fn build_watch_configs(config: &Config) -> Vec<WatchConfig> {
                 targets: notion.channels.clone(), // repurposed as doc IDs to watch
                 poll_interval_secs: 60,
                 mentions_only: false,
+            });
+        }
+    }
+
+    if let Some(ref msteams) = config.integrations.msteams {
+        if msteams.enabled {
+            configs.push(WatchConfig {
+                integration_id: "msteams".to_string(),
+                targets: msteams.channels.clone(),
+                poll_interval_secs: 30,
+                mentions_only: false,
+            });
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    if let Some(ref imessage) = config.integrations.imessage {
+        if imessage.enabled {
+            configs.push(WatchConfig {
+                integration_id: "imessage".to_string(),
+                targets: imessage.channels.clone(),
+                poll_interval_secs: 15,
+                mentions_only: true, // iMessage requires "koi:" prefix
             });
         }
     }
