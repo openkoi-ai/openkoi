@@ -325,6 +325,23 @@ openkoi status              # See active skills and effectiveness scores
 
 OpenKoi's pattern miner watches your usage and proposes new skills when it detects recurring workflows. Run `openkoi learn` to review and approve them.
 
+## Environment
+
+All paths default to `~/.openkoi/` (config) and `~/.local/share/openkoi/` (data). Set `OPENKOI_HOME` to relocate everything under a single directory:
+
+```bash
+export OPENKOI_HOME=/tmp/openkoi-test
+openkoi status   # config at /tmp/openkoi-test/, data at /tmp/openkoi-test/data/
+```
+
+| Variable | Description |
+|----------|-------------|
+| `OPENKOI_HOME` | Override all config and data paths. Config lives at `$OPENKOI_HOME/`, data at `$OPENKOI_HOME/data/`. |
+| `OPENKOI_CONFIG` | Override the config file path only. Default: `~/.openkoi/config.toml`. |
+| `OPENKOI_DATA` | Override the data directory only. Default: `~/.local/share/openkoi`. |
+| `OPENKOI_MODEL` | Default model in `provider/model` format. |
+| `OPENKOI_LOG_LEVEL` | Log verbosity: `error`, `warn`, `info`, `debug`, `trace`. |
+
 ## Documentation
 
 Full documentation at [openkoi.ai](https://openkoi.ai).
