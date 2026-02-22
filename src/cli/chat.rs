@@ -28,6 +28,9 @@ struct ChatState {
     total_tokens: u32,
     task_count: u32,
     history: Vec<HistoryEntry>,
+    /// Accumulated conversation history for context across messages.
+    /// Each entry is a summary of "User: ... -> Assistant: ..." exchange.
+    conversation_summary: String,
 }
 
 /// A record of a completed task in this session.
@@ -77,6 +80,7 @@ pub async fn run_chat(
         total_tokens: 0,
         task_count: 0,
         history: Vec::new(),
+        conversation_summary: String::new(),
     };
 
     // We need to reborrow mcp_manager across loop iterations.
@@ -136,6 +140,11 @@ pub async fn run_chat(
             recall,
             tools: mcp_tools.clone(),
             skill_registry: skill_registry.clone(),
+            conversation_history: if state.conversation_summary.is_empty() {
+                None
+            } else {
+                Some(state.conversation_summary.clone())
+            },
         };
 
         let mut orchestrator = Orchestrator::new(
@@ -181,6 +190,34 @@ pub async fn run_chat(
                     cost: result.cost,
                     score: result.final_score,
                 });
+
+                // Accumulate conversation history for cross-message context.
+                // Truncate the response to keep the summary compact.
+                let response_summary = if result.output.content.len() > 500 {
+                    let end = result.output.content
+                        .char_indices()
+                        .nth(500)
+                        .map(|(i, _)| i)
+                        .unwrap_or(result.output.content.len());
+                    format!("{}...", &result.output.content[..end])
+                } else {
+                    result.output.content.clone()
+                };
+                state.conversation_summary.push_str(&format!(
+                    "User: {}\nAssistant: {}\n\n",
+                    trimmed, response_summary,
+                ));
+                // Cap the conversation summary to prevent unbounded growth (~8K chars)
+                const MAX_SUMMARY_LEN: usize = 8000;
+                if state.conversation_summary.len() > MAX_SUMMARY_LEN {
+                    // Trim from the front, keeping the most recent exchanges
+                    let trim_point = state.conversation_summary.len() - MAX_SUMMARY_LEN;
+                    let safe_trim = state.conversation_summary[trim_point..]
+                        .find("\n\n")
+                        .map(|i| trim_point + i + 2)
+                        .unwrap_or(trim_point);
+                    state.conversation_summary = state.conversation_summary[safe_trim..].to_string();
+                }
 
                 // Log usage event
                 if let Some(ref s) = store {

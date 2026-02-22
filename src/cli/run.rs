@@ -51,26 +51,30 @@ pub async fn run_task(
 
     // Select relevant skills for this task
     let selector = SkillSelector::new();
-    let store_guard = store.as_ref().and_then(|s| s.lock().ok());
-    let ranked_skills = selector.select(
-        &task.description,
-        task.category.as_deref(),
-        skill_registry.all(),
-        store_guard.as_deref(),
-    );
+    let ranked_skills = {
+        let store_guard = store.as_ref().and_then(|s| s.lock().ok());
+        selector.select(
+            &task.description,
+            task.category.as_deref(),
+            skill_registry.all(),
+            store_guard.as_deref(),
+        )
+    }; // store_guard dropped here
     tracing::debug!("Selected {} skill(s)", ranked_skills.len());
 
-    // Recall from memory
-    let recall = match store_guard.as_deref() {
-        Some(s) => {
-            let token_budget = engine_config.token_budget / 10; // 10% for recall
-            recall::recall(s, task_description, task.category.as_deref(), token_budget)
-                .unwrap_or_default()
+    // Recall from memory (separate lock scope)
+    let recall = {
+        let store_guard = store.as_ref().and_then(|s| s.lock().ok());
+        match store_guard.as_deref() {
+            Some(s) => {
+                let token_budget = engine_config.token_budget / 10; // 10% for recall
+                recall::recall(s, task_description, task.category.as_deref(), token_budget)
+                    .unwrap_or_default()
+            }
+            None => HistoryRecall::default(),
         }
-        None => HistoryRecall::default(),
-    };
+    }; // store_guard dropped here
     tracing::debug!("Recalled {} tokens of context", recall.tokens_used);
-    drop(store_guard);
 
     let ctx = SessionContext {
         soul,
@@ -78,6 +82,7 @@ pub async fn run_task(
         recall,
         tools: mcp_tools,
         skill_registry,
+        conversation_history: None,
     };
 
     let mut orchestrator = Orchestrator::new(

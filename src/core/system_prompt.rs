@@ -25,11 +25,46 @@ pub fn build_system_prompt(
     tools: &[ToolDef],
     skill_registry: &SkillRegistry,
 ) -> String {
+    build_system_prompt_with_history(
+        task,
+        plan,
+        soul,
+        ranked_skills,
+        recall,
+        tools,
+        skill_registry,
+        None,
+    )
+}
+
+/// Build the complete system prompt with optional conversation history.
+/// When `conversation_history` is provided, it is included as a section
+/// so the model has context from prior messages in the same chat session.
+pub fn build_system_prompt_with_history(
+    task: &TaskInput,
+    plan: &Plan,
+    soul: &Soul,
+    ranked_skills: &[RankedSkill],
+    recall: &HistoryRecall,
+    tools: &[ToolDef],
+    skill_registry: &SkillRegistry,
+    conversation_history: Option<&str>,
+) -> String {
     let mut prompt = String::with_capacity(8192);
 
     // --- Section 1: Identity (Soul) ---
     // Soul comes first — it frames everything else.
     append_soul_section(&mut prompt, soul);
+
+    // --- Section 1b: Conversation History (chat sessions only) ---
+    if let Some(history) = conversation_history {
+        if !history.is_empty() {
+            prompt.push_str("# Conversation History\n\n");
+            prompt.push_str("Previous exchanges in this session:\n\n");
+            prompt.push_str(history);
+            prompt.push_str("\n\n");
+        }
+    }
 
     // --- Section 2: Task ---
     append_task_section(&mut prompt, task);

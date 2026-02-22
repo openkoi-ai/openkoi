@@ -18,7 +18,7 @@ use crate::memory::recall::HistoryRecall;
 use crate::memory::store::Store;
 use crate::plugins::mcp::McpManager;
 use crate::provider::roles::ModelRoles;
-use crate::provider::{ModelProvider, ToolDef};
+use crate::provider::{ModelInfo, ModelProvider, ToolDef};
 use crate::skills::registry::SkillRegistry;
 use crate::soul::loader::Soul;
 
@@ -36,6 +36,9 @@ pub struct Orchestrator {
     /// Actual model IDs for cost tracking (from ModelRoles).
     executor_model_id: String,
     evaluator_model_id: String,
+    /// Resolved ModelInfo for accurate cost tracking (None if model not found in catalog).
+    executor_model_info: Option<ModelInfo>,
+    evaluator_model_info: Option<ModelInfo>,
     /// Optional persistence store for recording task/cycle/finding data.
     store: Option<Arc<Mutex<Store>>>,
     /// Optional callback for real-time progress events.
@@ -50,6 +53,9 @@ pub struct SessionContext {
     pub recall: HistoryRecall,
     pub tools: Vec<ToolDef>,
     pub skill_registry: Arc<SkillRegistry>,
+    /// Optional conversation history from previous messages in the same chat session.
+    /// Included in the system prompt so the model has context across messages.
+    pub conversation_history: Option<String>,
 }
 
 impl Orchestrator {
@@ -65,15 +71,27 @@ impl Orchestrator {
         let evaluator_model_id = roles.evaluator.model.clone();
 
         // Look up context window from the provider's model catalog
-        let context_window = provider
-            .models()
+        let models = provider.models();
+        let executor_model_info = models
             .iter()
             .find(|m| m.id == executor_model_id)
+            .cloned();
+        let evaluator_model_info = models
+            .iter()
+            .find(|m| m.id == evaluator_model_id)
+            .cloned();
+        let context_window = executor_model_info
+            .as_ref()
             .map(|m| m.context_window)
             .unwrap_or(0);
 
         Self {
-            executor: Executor::new(provider.clone(), executor_model_id.clone()),
+            executor: Executor::new(provider.clone(), executor_model_id.clone())
+                .with_tool_loop_thresholds(
+                    safety.tool_loop_warning,
+                    safety.tool_loop_critical,
+                    safety.tool_loop_circuit_breaker,
+                ),
             evaluator: EvaluatorFramework::new(
                 skill_registry,
                 provider,
@@ -87,6 +105,8 @@ impl Orchestrator {
             context_window,
             executor_model_id,
             evaluator_model_id,
+            executor_model_info,
+            evaluator_model_info,
             store,
             on_progress: None,
         }
@@ -216,6 +236,7 @@ impl Orchestrator {
                     &ctx.tools,
                     &ctx.skill_registry,
                     self.context_window,
+                    ctx.conversation_history.as_deref(),
                 );
                 if pruned {
                     tracing::info!(
@@ -226,7 +247,7 @@ impl Orchestrator {
                 }
                 ctx
             } else {
-                self.token_optimizer.build_context(
+                self.token_optimizer.build_context_with_history(
                     &task,
                     &plan,
                     &cycles,
@@ -236,6 +257,7 @@ impl Orchestrator {
                     &ctx.recall,
                     &ctx.tools,
                     &ctx.skill_registry,
+                    ctx.conversation_history.as_deref(),
                 )
             };
 
@@ -248,8 +270,17 @@ impl Orchestrator {
             {
                 Ok(output) => {
                     budget.deduct(&output.usage);
-                    self.cost_tracker
-                        .record(&self.executor_model_id, &output.usage);
+                    // Record cost using ModelInfo pricing when available (accurate),
+                    // falling back to string-based model name lookup (heuristic).
+                    if let Some(ref info) = self.executor_model_info {
+                        self.cost_tracker
+                            .record_with_model_info_and_phase(info, &output.usage, "execute");
+                    } else {
+                        self.cost_tracker
+                            .record_with_phase(&self.executor_model_id, &output.usage, "execute");
+                    }
+                    // Sync cycle-level usage from output
+                    cycle.usage = output.usage.clone();
                     // Emit tool call events
                     if output.tool_calls_made > 0 {
                         for file in &output.files_modified {
@@ -266,6 +297,18 @@ impl Orchestrator {
                         "Context overflow on iteration {}: {}. Context will be pruned on next iteration.",
                         i, e
                     );
+                    // Attach a synthetic output so the next iteration's build_context
+                    // has something to work with (otherwise delta feedback is empty).
+                    cycle.output = Some(ExecutionOutput {
+                        content: format!(
+                            "[Context overflow on iteration {}. The context exceeded the model's window. \
+                             Retrying with pruned context.]",
+                            i
+                        ),
+                        usage: crate::provider::TokenUsage::default(),
+                        tool_calls_made: 0,
+                        files_modified: vec![],
+                    });
                     // Don't abort — the next iteration will use build_context_safe
                     // which prunes proactively. Mark this cycle as needing retry.
                     cycle.decision = IterationDecision::Continue;
@@ -298,21 +341,26 @@ impl Orchestrator {
                     {
                         Ok(evaluation) => {
                             budget.deduct(&evaluation.usage);
-                            self.cost_tracker
-                                .record(&self.evaluator_model_id, &evaluation.usage);
+                            if let Some(ref info) = self.evaluator_model_info {
+                                self.cost_tracker
+                                    .record_with_model_info_and_phase(info, &evaluation.usage, "evaluate");
+                            } else {
+                                self.cost_tracker
+                                    .record_with_phase(&self.evaluator_model_id, &evaluation.usage, "evaluate");
+                            }
                             cycle.evaluation = Some(evaluation);
                         }
                         Err(e) => {
-                            tracing::warn!("Evaluation failed: {}, using default score", e);
+                            tracing::warn!("Evaluation failed: {}, using conservative default score", e);
                             cycle.evaluation = Some(Evaluation {
-                                score: 0.85,
+                                score: 0.5,
                                 dimensions: vec![],
                                 findings: vec![],
-                                suggestion: String::new(),
+                                suggestion: "Evaluation failed; score is a conservative default.".into(),
                                 usage: crate::provider::TokenUsage::default(),
                                 evaluator_skill: "default".into(),
-                                tests_passed: true,
-                                static_analysis_passed: true,
+                                tests_passed: false,
+                                static_analysis_passed: false,
                             });
                         }
                     }

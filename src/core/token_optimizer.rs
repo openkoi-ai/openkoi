@@ -49,8 +49,37 @@ impl TokenOptimizer {
         tools: &[ToolDef],
         skill_registry: &SkillRegistry,
     ) -> ExecutionContext {
+        self.build_context_with_history(
+            task,
+            plan,
+            cycles,
+            _budget,
+            soul,
+            ranked_skills,
+            recall,
+            tools,
+            skill_registry,
+            None,
+        )
+    }
+
+    /// Build context with optional conversation history (for chat sessions).
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_context_with_history(
+        &self,
+        task: &TaskInput,
+        plan: &Plan,
+        cycles: &[IterationCycle],
+        _budget: &super::token_budget::TokenBudget,
+        soul: &Soul,
+        ranked_skills: &[RankedSkill],
+        recall: &HistoryRecall,
+        tools: &[ToolDef],
+        skill_registry: &SkillRegistry,
+        conversation_history: Option<&str>,
+    ) -> ExecutionContext {
         // System prompt is the same for every iteration (enables prompt caching).
-        let system = system_prompt::build_system_prompt(
+        let system = system_prompt::build_system_prompt_with_history(
             task,
             plan,
             soul,
@@ -58,6 +87,7 @@ impl TokenOptimizer {
             recall,
             tools,
             skill_registry,
+            conversation_history,
         );
         let system_tokens = estimate_tokens(&system);
 
@@ -111,8 +141,9 @@ impl TokenOptimizer {
         tools: &[ToolDef],
         skill_registry: &SkillRegistry,
         context_window: u32,
+        conversation_history: Option<&str>,
     ) -> (ExecutionContext, bool) {
-        let mut ctx = self.build_context(
+        let mut ctx = self.build_context_with_history(
             task,
             plan,
             cycles,
@@ -122,6 +153,7 @@ impl TokenOptimizer {
             recall,
             tools,
             skill_registry,
+            conversation_history,
         );
 
         let limit = context_window.saturating_sub(CONTEXT_BUFFER_TOKENS);
@@ -196,9 +228,15 @@ impl TokenOptimizer {
     }
 
     /// Refine a plan based on evaluation feedback.
+    /// Replaces previously-added fix steps (those starting with "Fix:") with fresh ones
+    /// from the current evaluation, preventing unbounded plan growth.
     pub fn refine_plan(&self, plan: &Plan, eval: &Evaluation) -> Plan {
         let mut refined = plan.clone();
-        // Add steps for unresolved findings
+        // Remove previously-added fix steps to prevent unbounded growth
+        refined
+            .steps
+            .retain(|s| !s.description.starts_with("Fix: "));
+        // Add steps for unresolved findings from this evaluation
         for finding in &eval.findings {
             if finding.severity != Severity::Suggestion {
                 if let Some(fix) = &finding.fix {
@@ -309,8 +347,10 @@ pub fn check_context_fit(token_estimate: u32, context_window: u32) -> u32 {
 }
 
 /// Rough token estimate (4 chars ~= 1 token).
+/// Uses character count instead of byte length to avoid overestimating
+/// for multi-byte characters (CJK, emoji, etc.).
 pub fn estimate_tokens(text: &str) -> u32 {
-    (text.len() as f32 / 4.0).ceil() as u32
+    (text.chars().count() as f32 / 4.0).ceil() as u32
 }
 
 #[cfg(test)]
@@ -333,9 +373,9 @@ mod tests {
 
     #[test]
     fn test_estimate_tokens_unicode() {
-        // Unicode chars may be >1 byte; estimate_tokens uses byte length
-        let s = "日本語"; // 9 bytes in UTF-8
-        assert_eq!(estimate_tokens(s), 3); // ceil(9/4) = 3
+        // Unicode chars: estimate_tokens uses char count (not byte length)
+        let s = "日本語"; // 3 chars (9 bytes in UTF-8)
+        assert_eq!(estimate_tokens(s), 1); // ceil(3/4) = 1
     }
 
     #[test]

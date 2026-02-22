@@ -577,6 +577,7 @@ async fn execute_daemon_task(
         recall,
         tools: ctx.mcp_tools.clone(),
         skill_registry: ctx.skill_registry.clone(),
+        conversation_history: None,
     };
 
     // Progress notification: send "still working..." once after 60s.

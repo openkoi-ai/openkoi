@@ -36,11 +36,13 @@ impl EvalCache {
             }
         }
 
-        // Tests pass + lint clean + previous score was high = skip LLM judge
+        // Previous iteration had very high score and identical tool usage pattern → skip LLM judge.
+        // Note: we only check the *previous* cycle's evaluation data here, because the
+        // current cycle's evaluation has not been set yet (that's what we're deciding to skip).
         if let Some(prev_eval) = history.last().and_then(|c| c.evaluation.as_ref()) {
             if prev_eval.score >= config.skip_eval_confidence
-                && cycle.tests_passed()
-                && cycle.static_analysis_passed()
+                && prev_eval.tests_passed
+                && prev_eval.static_analysis_passed
             {
                 return true;
             }

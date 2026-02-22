@@ -25,6 +25,9 @@ pub struct EvaluatorFramework {
     /// Directory to search for project markers (Cargo.toml, package.json, etc.).
     /// Defaults to `.` (current working directory).
     project_dir: PathBuf,
+    /// Optional score calibrator for normalizing scores across evaluator types.
+    /// When present, all evaluation scores are calibrated before returning.
+    calibrator: Option<ScoreCalibrator>,
 }
 
 impl EvaluatorFramework {
@@ -40,6 +43,7 @@ impl EvaluatorFramework {
             test_runner: test_runner::TestRunner::new(),
             static_analyzer: static_analysis::StaticAnalyzer::new(),
             project_dir: PathBuf::from("."),
+            calibrator: None,
         }
     }
 
@@ -50,9 +54,17 @@ impl EvaluatorFramework {
         self
     }
 
+    /// Enable score calibration. When enabled, dimension scores from LLM-based
+    /// evaluators are normalized using rolling z-score statistics, making scores
+    /// from different evaluator types (LLM, tests, lint) more comparable.
+    pub fn with_calibration(mut self) -> Self {
+        self.calibrator = Some(ScoreCalibrator::new());
+        self
+    }
+
     /// Evaluate a task output using built-in and skill-based evaluators.
     pub async fn evaluate(
-        &self,
+        &mut self,
         task: &TaskInput,
         output: &ExecutionOutput,
     ) -> anyhow::Result<Evaluation> {
@@ -107,7 +119,7 @@ impl EvaluatorFramework {
 
         let score = composite_score(&dimensions);
 
-        Ok(Evaluation {
+        let mut eval = Evaluation {
             score,
             dimensions,
             suggestion: generate_suggestion(&findings),
@@ -116,7 +128,15 @@ impl EvaluatorFramework {
             evaluator_skill: evaluator_name,
             tests_passed,
             static_analysis_passed: static_passed,
-        })
+        };
+
+        // Apply score calibration if enabled
+        if let Some(ref mut cal) = self.calibrator {
+            let source = eval.evaluator_skill.clone();
+            cal.calibrate_evaluation(&mut eval, &source);
+        }
+
+        Ok(eval)
     }
 
     /// Incremental evaluation: on the first iteration, do a full evaluation.
@@ -124,7 +144,7 @@ impl EvaluatorFramework {
     /// re-evaluate affected dimensions, carrying forward unchanged scores.
     /// This saves 40-70% of evaluation tokens on iterations 2+.
     pub async fn evaluate_incremental(
-        &self,
+        &mut self,
         task: &TaskInput,
         current_output: &ExecutionOutput,
         history: &[IterationCycle],
@@ -243,7 +263,7 @@ impl EvaluatorFramework {
 
         let score = composite_score(&dimensions);
 
-        Ok(Evaluation {
+        let mut eval = Evaluation {
             score,
             dimensions,
             suggestion: generate_suggestion(&findings),
@@ -252,7 +272,15 @@ impl EvaluatorFramework {
             evaluator_skill: evaluator_name,
             tests_passed,
             static_analysis_passed: static_passed,
-        })
+        };
+
+        // Apply score calibration if enabled
+        if let Some(ref mut cal) = self.calibrator {
+            let source = eval.evaluator_skill.clone();
+            cal.calibrate_evaluation(&mut eval, &source);
+        }
+
+        Ok(eval)
     }
 
     /// Run an evaluator skill in incremental mode, focusing on what changed.
@@ -462,11 +490,15 @@ fn compute_diff_ratio(prev: &str, current: &str) -> f32 {
 }
 
 /// Truncate text for evaluation prompts (to save tokens on previous output).
+/// Uses char_indices to find a safe UTF-8 boundary, preventing panics on multi-byte characters.
 fn truncate_for_eval(text: &str, max_chars: usize) -> &str {
     if text.len() <= max_chars {
-        text
-    } else {
-        &text[..max_chars]
+        return text;
+    }
+    // Find the byte index at the `max_chars`-th character boundary (or end of string)
+    match text.char_indices().nth(max_chars) {
+        Some((byte_idx, _)) => &text[..byte_idx],
+        None => text, // fewer than max_chars characters
     }
 }
 
@@ -600,7 +632,7 @@ fn parse_incremental_eval_response(
 /// Compute weighted composite score from dimension scores.
 pub(crate) fn composite_score(dimensions: &[DimensionScore]) -> f32 {
     if dimensions.is_empty() {
-        return 0.85; // Default reasonable score when no evaluators run
+        return 0.5; // Conservative default when no evaluators run
     }
 
     let total_weight: f32 = dimensions.iter().map(|d| d.weight).sum();
@@ -807,7 +839,7 @@ mod tests {
 
     #[test]
     fn test_composite_score_empty() {
-        assert!((composite_score(&[]) - 0.85).abs() < 0.001);
+        assert!((composite_score(&[]) - 0.5).abs() < 0.001);
     }
 
     #[test]

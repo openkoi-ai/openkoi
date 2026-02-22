@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use super::overflow;
+use super::safety::ToolLoopStatus;
 use super::truncation;
 use super::types::*;
 use crate::infra::errors::OpenKoiError;
@@ -30,11 +31,48 @@ const INTEGRATION_TOOL_SUFFIXES: &[&str] = &[
 pub struct Executor {
     provider: Arc<dyn ModelProvider>,
     model_id: String,
+    /// Tool loop detection thresholds (from SafetyChecker config).
+    tool_loop_warning: u32,
+    tool_loop_critical: u32,
+    tool_loop_circuit_breaker: u32,
 }
 
 impl Executor {
     pub fn new(provider: Arc<dyn ModelProvider>, model_id: String) -> Self {
-        Self { provider, model_id }
+        Self {
+            provider,
+            model_id,
+            // Default thresholds — callers should use with_tool_loop_thresholds
+            tool_loop_warning: 50,
+            tool_loop_critical: 80,
+            tool_loop_circuit_breaker: 100,
+        }
+    }
+
+    /// Configure tool loop detection thresholds from safety config.
+    pub fn with_tool_loop_thresholds(
+        mut self,
+        warning: u32,
+        critical: u32,
+        circuit_breaker: u32,
+    ) -> Self {
+        self.tool_loop_warning = warning;
+        self.tool_loop_critical = critical;
+        self.tool_loop_circuit_breaker = circuit_breaker;
+        self
+    }
+
+    /// Check tool loop status based on accumulated tool calls.
+    fn check_tool_loop(&self, tool_call_count: u32) -> ToolLoopStatus {
+        if tool_call_count >= self.tool_loop_circuit_breaker {
+            ToolLoopStatus::CircuitBreaker
+        } else if tool_call_count >= self.tool_loop_critical {
+            ToolLoopStatus::Critical
+        } else if tool_call_count >= self.tool_loop_warning {
+            ToolLoopStatus::Warning
+        } else {
+            ToolLoopStatus::Ok
+        }
     }
 
     /// Execute a task given the prepared context.
@@ -60,7 +98,7 @@ impl Executor {
         let mut total_tool_calls: u32 = 0;
         let mut accumulated_content = String::new();
         let mut total_usage = crate::provider::TokenUsage::default();
-        let files_modified = Vec::new();
+        let mut files_modified: Vec<String> = Vec::new();
 
         // We need to reborrow mcp across loop iterations
         let mut mcp = mcp;
@@ -116,11 +154,51 @@ impl Executor {
                     );
                 }
                 messages.push(Message::tool_result(&tc.id, &truncated.content));
+
+                // Track file modifications from tool calls
+                if let Some(path) = extract_file_path_from_tool_call(tc) {
+                    if !files_modified.contains(&path) {
+                        files_modified.push(path);
+                    }
+                }
             }
 
             // If the model said it's done (EndTurn) even with tool calls, break
             if matches!(response.stop_reason, StopReason::EndTurn) {
                 break;
+            }
+
+            // Check for tool loop conditions
+            match self.check_tool_loop(total_tool_calls) {
+                ToolLoopStatus::CircuitBreaker => {
+                    tracing::error!(
+                        "Tool loop circuit breaker triggered ({} calls). Aborting execution.",
+                        total_tool_calls
+                    );
+                    accumulated_content.push_str(&format!(
+                        "\n[ABORTED: Tool loop detected — {} tool calls exceeded circuit breaker limit of {}]",
+                        total_tool_calls, self.tool_loop_circuit_breaker
+                    ));
+                    break;
+                }
+                ToolLoopStatus::Critical => {
+                    tracing::warn!(
+                        "Tool loop critical threshold reached ({} calls). Injecting warning.",
+                        total_tool_calls
+                    );
+                    // Inject a system-level nudge to the model
+                    messages.push(Message::user(
+                        "[SYSTEM WARNING] You have made a very high number of tool calls. \
+                         Please wrap up your current task and provide a final response. \
+                         Further tool calls may be terminated."
+                    ));
+                }
+                ToolLoopStatus::Warning => {
+                    tracing::info!(
+                        "Tool loop warning: {} tool calls so far", total_tool_calls
+                    );
+                }
+                ToolLoopStatus::Ok => {}
             }
         }
 
@@ -409,4 +487,49 @@ async fn dispatch_mcp_tool(
             format!("Error calling tool '{}': {}", tc.name, e)
         }
     }
+}
+
+/// Extract a file path from a tool call if the tool modifies files.
+///
+/// Checks for common file-writing tool name patterns and extracts the `path`
+/// or `file_path` argument. Returns `None` for non-file-modifying tools.
+fn extract_file_path_from_tool_call(tc: &crate::provider::ToolCall) -> Option<String> {
+    // Get the bare tool name (strip MCP server prefix if present)
+    let tool_name = tc
+        .name
+        .split("__")
+        .last()
+        .unwrap_or(&tc.name)
+        .to_lowercase();
+
+    // Known file-writing tool name patterns
+    const FILE_WRITE_PATTERNS: &[&str] = &[
+        "write_file",
+        "create_file",
+        "edit_file",
+        "patch_file",
+        "str_replace_editor",
+        "str_replace",
+        "write",
+        "save_file",
+        "append_file",
+        "insert_text",
+    ];
+
+    let is_file_tool = FILE_WRITE_PATTERNS
+        .iter()
+        .any(|p| tool_name.contains(p));
+
+    if !is_file_tool {
+        return None;
+    }
+
+    // Try common argument names for the file path
+    for key in &["path", "file_path", "file", "filename", "target_file"] {
+        if let Some(val) = tc.arguments.get(*key).and_then(|v| v.as_str()) {
+            return Some(val.to_string());
+        }
+    }
+
+    None
 }

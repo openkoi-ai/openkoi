@@ -102,6 +102,7 @@ fn default_session_context() -> SessionContext {
         recall: HistoryRecall::default(),
         tools: vec![],
         skill_registry: Arc::new(SkillRegistry::empty()),
+        conversation_history: None,
     }
 }
 
