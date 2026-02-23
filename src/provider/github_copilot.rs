@@ -68,66 +68,19 @@ pub struct GithubCopilotProvider {
     probed_models: Option<Vec<ModelInfo>>,
 }
 
-/// Static fallback models (used when probing fails or cache is cold on first install).
-fn static_models() -> Vec<ModelInfo> {
+/// Known Copilot models that are NOT returned by the /models endpoint.
+///
+/// The Copilot `/models` API only lists GPT models. Claude, Gemini, and
+/// reasoning models are supported but must be hardcoded. Model IDs and
+/// context windows are based on the Copilot proxy limits (which are
+/// smaller than direct API limits for some models).
+fn extra_models() -> Vec<ModelInfo> {
     vec![
-        // ─── GPT models ────────────────────────────────────────────
-        ModelInfo {
-            id: "gpt-4o".into(),
-            name: "GPT-4o (Copilot)".into(),
-            context_window: 128_000,
-            max_output_tokens: 16_384,
-            supports_tools: true,
-            supports_streaming: true,
-            input_price_per_mtok: 0.0,
-            output_price_per_mtok: 0.0,
-            supports_vision: true,
-            family: Some("gpt-4o".into()),
-            ..Default::default()
-        },
-        ModelInfo {
-            id: "gpt-4o-mini".into(),
-            name: "GPT-4o mini (Copilot)".into(),
-            context_window: 128_000,
-            max_output_tokens: 4_096,
-            supports_tools: true,
-            supports_streaming: true,
-            input_price_per_mtok: 0.0,
-            output_price_per_mtok: 0.0,
-            supports_vision: true,
-            family: Some("gpt-4o".into()),
-            ..Default::default()
-        },
-        ModelInfo {
-            id: "gpt-4.1".into(),
-            name: "GPT-4.1 (Copilot)".into(),
-            context_window: 1_047_576,
-            max_output_tokens: 32_768,
-            supports_tools: true,
-            supports_streaming: true,
-            input_price_per_mtok: 0.0,
-            output_price_per_mtok: 0.0,
-            supports_vision: true,
-            family: Some("gpt-4.1".into()),
-            ..Default::default()
-        },
-        ModelInfo {
-            id: "gpt-3.5-turbo".into(),
-            name: "GPT-3.5 Turbo (Copilot)".into(),
-            context_window: 16_384,
-            max_output_tokens: 4_096,
-            supports_tools: true,
-            supports_streaming: true,
-            input_price_per_mtok: 0.0,
-            output_price_per_mtok: 0.0,
-            family: Some("gpt-3.5".into()),
-            ..Default::default()
-        },
         // ─── Claude models ─────────────────────────────────────────
         ModelInfo {
             id: "claude-3.5-sonnet".into(),
             name: "Claude 3.5 Sonnet (Copilot)".into(),
-            context_window: 200_000,
+            context_window: 90_000,
             max_output_tokens: 8_192,
             supports_tools: true,
             supports_streaming: true,
@@ -138,10 +91,36 @@ fn static_models() -> Vec<ModelInfo> {
             ..Default::default()
         },
         ModelInfo {
-            id: "claude-sonnet-4".into(),
-            name: "Claude Sonnet 4 (Copilot)".into(),
+            id: "claude-3.7-sonnet".into(),
+            name: "Claude 3.7 Sonnet (Copilot)".into(),
             context_window: 200_000,
             max_output_tokens: 16_384,
+            supports_tools: true,
+            supports_streaming: true,
+            input_price_per_mtok: 0.0,
+            output_price_per_mtok: 0.0,
+            supports_vision: true,
+            family: Some("claude-3.7".into()),
+            ..Default::default()
+        },
+        ModelInfo {
+            id: "claude-3.7-sonnet-thought".into(),
+            name: "Claude 3.7 Sonnet Thinking (Copilot)".into(),
+            context_window: 200_000,
+            max_output_tokens: 16_384,
+            supports_tools: true,
+            supports_streaming: true,
+            input_price_per_mtok: 0.0,
+            output_price_per_mtok: 0.0,
+            supports_vision: true,
+            family: Some("claude-3.7".into()),
+            ..Default::default()
+        },
+        ModelInfo {
+            id: "claude-sonnet-4".into(),
+            name: "Claude Sonnet 4 (Copilot)".into(),
+            context_window: 128_000,
+            max_output_tokens: 16_000,
             supports_tools: true,
             supports_streaming: true,
             input_price_per_mtok: 0.0,
@@ -151,6 +130,18 @@ fn static_models() -> Vec<ModelInfo> {
             ..Default::default()
         },
         // ─── Reasoning models ──────────────────────────────────────
+        ModelInfo {
+            id: "o1".into(),
+            name: "o1 (Copilot)".into(),
+            context_window: 200_000,
+            max_output_tokens: 100_000,
+            supports_tools: true,
+            supports_streaming: true,
+            input_price_per_mtok: 0.0,
+            output_price_per_mtok: 0.0,
+            family: Some("o1".into()),
+            ..Default::default()
+        },
         ModelInfo {
             id: "o3-mini".into(),
             name: "o3-mini (Copilot)".into(),
@@ -166,20 +157,21 @@ fn static_models() -> Vec<ModelInfo> {
         ModelInfo {
             id: "o4-mini".into(),
             name: "o4-mini (Copilot)".into(),
-            context_window: 200_000,
-            max_output_tokens: 100_000,
+            context_window: 128_000,
+            max_output_tokens: 16_384,
             supports_tools: true,
             supports_streaming: true,
             input_price_per_mtok: 0.0,
             output_price_per_mtok: 0.0,
+            supports_vision: true,
             family: Some("o4".into()),
             ..Default::default()
         },
         // ─── Gemini models ─────────────────────────────────────────
         ModelInfo {
-            id: "gemini-2.0-flash".into(),
+            id: "gemini-2.0-flash-001".into(),
             name: "Gemini 2.0 Flash (Copilot)".into(),
-            context_window: 1_048_576,
+            context_window: 1_000_000,
             max_output_tokens: 8_192,
             supports_tools: true,
             supports_streaming: true,
@@ -187,6 +179,46 @@ fn static_models() -> Vec<ModelInfo> {
             output_price_per_mtok: 0.0,
             supports_vision: true,
             family: Some("gemini-2.0".into()),
+            ..Default::default()
+        },
+        ModelInfo {
+            id: "gemini-2.5-pro".into(),
+            name: "Gemini 2.5 Pro (Copilot)".into(),
+            context_window: 128_000,
+            max_output_tokens: 64_000,
+            supports_tools: true,
+            supports_streaming: true,
+            input_price_per_mtok: 0.0,
+            output_price_per_mtok: 0.0,
+            supports_vision: true,
+            family: Some("gemini-2.5".into()),
+            ..Default::default()
+        },
+        // ─── GPT (not always returned by /models) ──────────────────
+        ModelInfo {
+            id: "gpt-4".into(),
+            name: "GPT-4 (Copilot)".into(),
+            context_window: 32_768,
+            max_output_tokens: 4_096,
+            supports_tools: true,
+            supports_streaming: true,
+            input_price_per_mtok: 0.0,
+            output_price_per_mtok: 0.0,
+            supports_vision: true,
+            family: Some("gpt-4".into()),
+            ..Default::default()
+        },
+        ModelInfo {
+            id: "gpt-4.1".into(),
+            name: "GPT-4.1 (Copilot)".into(),
+            context_window: 128_000,
+            max_output_tokens: 16_384,
+            supports_tools: true,
+            supports_streaming: true,
+            input_price_per_mtok: 0.0,
+            output_price_per_mtok: 0.0,
+            supports_vision: true,
+            family: Some("gpt-4.1".into()),
             ..Default::default()
         },
     ]
@@ -573,8 +605,19 @@ impl ModelProvider for GithubCopilotProvider {
     }
 
     fn models(&self) -> Vec<ModelInfo> {
-        // Return probed models if available, otherwise fall back to static list
-        self.probed_models.clone().unwrap_or_else(static_models)
+        // The /models endpoint only returns GPT models. We merge the probed
+        // list (which may include dated GPT variants like gpt-4o-2024-11-20)
+        // with our hardcoded extra_models() list (Claude, Gemini, reasoning).
+        // Deduplication is by model ID — probed models take priority.
+        let mut models = self.probed_models.clone().unwrap_or_default();
+        let seen: std::collections::HashSet<String> =
+            models.iter().map(|m| m.id.clone()).collect();
+        for extra in extra_models() {
+            if !seen.contains(&extra.id) {
+                models.push(extra);
+            }
+        }
+        models
     }
 
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, OpenKoiError> {
