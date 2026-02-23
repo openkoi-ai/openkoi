@@ -34,16 +34,45 @@ impl AnthropicProvider {
             .messages
             .iter()
             .filter(|m| m.role != Role::System)
-            .map(|m| {
-                serde_json::json!({
-                    "role": match m.role {
-                        Role::User => "user",
-                        Role::Assistant => "assistant",
-                        Role::Tool => "user",
-                        Role::System => unreachable!(),
-                    },
-                    "content": m.content,
-                })
+            .map(|m| match m.role {
+                Role::Assistant if !m.tool_calls.is_empty() => {
+                    // Assistant message with tool calls: emit text + tool_use blocks
+                    let mut content: Vec<serde_json::Value> = Vec::new();
+                    if !m.content.is_empty() {
+                        content.push(serde_json::json!({"type": "text", "text": m.content}));
+                    }
+                    for tc in &m.tool_calls {
+                        content.push(serde_json::json!({
+                            "type": "tool_use",
+                            "id": tc.id,
+                            "name": tc.name,
+                            "input": tc.arguments,
+                        }));
+                    }
+                    serde_json::json!({"role": "assistant", "content": content})
+                }
+                Role::Tool => {
+                    // Tool result: Anthropic expects role=user with tool_result content block
+                    let tc_id = m.tool_call_id.as_deref().unwrap_or("");
+                    serde_json::json!({
+                        "role": "user",
+                        "content": [{
+                            "type": "tool_result",
+                            "tool_use_id": tc_id,
+                            "content": m.content,
+                        }]
+                    })
+                }
+                _ => {
+                    serde_json::json!({
+                        "role": match m.role {
+                            Role::User => "user",
+                            Role::Assistant => "assistant",
+                            Role::Tool | Role::System => unreachable!(),
+                        },
+                        "content": m.content,
+                    })
+                }
             })
             .collect();
 

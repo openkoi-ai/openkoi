@@ -138,6 +138,12 @@ pub struct Message {
     pub role: Role,
     pub content: String,
     pub tool_call_id: Option<String>,
+    /// Tool calls made by the assistant in this message.
+    /// Required by OpenAI-compatible APIs: when a `Role::Tool` message follows an
+    /// `Role::Assistant` message, the assistant message MUST include the `tool_calls`
+    /// that the tool results are responding to.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<ToolCall>,
 }
 
 impl Message {
@@ -146,6 +152,7 @@ impl Message {
             role: Role::System,
             content: content.into(),
             tool_call_id: None,
+            tool_calls: Vec::new(),
         }
     }
 
@@ -154,6 +161,7 @@ impl Message {
             role: Role::User,
             content: content.into(),
             tool_call_id: None,
+            tool_calls: Vec::new(),
         }
     }
 
@@ -162,6 +170,22 @@ impl Message {
             role: Role::Assistant,
             content: content.into(),
             tool_call_id: None,
+            tool_calls: Vec::new(),
+        }
+    }
+
+    /// Create an assistant message that includes tool calls.
+    /// This is required by OpenAI-compatible APIs: tool result messages
+    /// must be preceded by an assistant message carrying the `tool_calls`.
+    pub fn assistant_with_tool_calls(
+        content: impl Into<String>,
+        tool_calls: Vec<ToolCall>,
+    ) -> Self {
+        Self {
+            role: Role::Assistant,
+            content: content.into(),
+            tool_call_id: None,
+            tool_calls,
         }
     }
 
@@ -170,6 +194,7 @@ impl Message {
             role: Role::Tool,
             content: content.into(),
             tool_call_id: Some(tool_call_id.into()),
+            tool_calls: Vec::new(),
         }
     }
 }
@@ -333,6 +358,7 @@ mod tests {
         assert_eq!(m.role, Role::System);
         assert_eq!(m.content, "You are helpful");
         assert!(m.tool_call_id.is_none());
+        assert!(m.tool_calls.is_empty());
     }
 
     #[test]
@@ -340,12 +366,37 @@ mod tests {
         let m = Message::user("Hello");
         assert_eq!(m.role, Role::User);
         assert_eq!(m.content, "Hello");
+        assert!(m.tool_calls.is_empty());
     }
 
     #[test]
     fn test_message_assistant() {
         let m = Message::assistant("Sure!");
         assert_eq!(m.role, Role::Assistant);
+        assert!(m.tool_calls.is_empty());
+    }
+
+    #[test]
+    fn test_message_assistant_with_tool_calls() {
+        let tool_calls = vec![
+            ToolCall {
+                id: "call_1".into(),
+                name: "read_file".into(),
+                arguments: serde_json::json!({"path": "index.html"}),
+            },
+            ToolCall {
+                id: "call_2".into(),
+                name: "write_file".into(),
+                arguments: serde_json::json!({"path": "index.html", "content": "<html>"}),
+            },
+        ];
+        let m = Message::assistant_with_tool_calls("I'll help with that.", tool_calls.clone());
+        assert_eq!(m.role, Role::Assistant);
+        assert_eq!(m.content, "I'll help with that.");
+        assert_eq!(m.tool_calls.len(), 2);
+        assert_eq!(m.tool_calls[0].id, "call_1");
+        assert_eq!(m.tool_calls[1].name, "write_file");
+        assert!(m.tool_call_id.is_none());
     }
 
     #[test]
@@ -354,6 +405,7 @@ mod tests {
         assert_eq!(m.role, Role::Tool);
         assert_eq!(m.tool_call_id, Some("call_123".into()));
         assert_eq!(m.content, "result data");
+        assert!(m.tool_calls.is_empty());
     }
 
     // ─── StopReason tests ───────────────────────────────────────

@@ -227,15 +227,34 @@ impl ModelProvider for OpenAICompatProvider {
                 msgs.push(serde_json::json!({"role": "system", "content": system}));
             }
             for m in &request.messages {
-                msgs.push(serde_json::json!({
-                    "role": match m.role {
-                        Role::System => "system",
-                        Role::User => "user",
-                        Role::Assistant => "assistant",
-                        Role::Tool => "tool",
-                    },
-                    "content": m.content,
-                }));
+                let role = match m.role {
+                    Role::System => "system",
+                    Role::User => "user",
+                    Role::Assistant => "assistant",
+                    Role::Tool => "tool",
+                };
+                let mut msg = serde_json::json!({"role": role, "content": m.content});
+                if let Some(tc_id) = &m.tool_call_id {
+                    msg["tool_call_id"] = serde_json::json!(tc_id);
+                }
+                if !m.tool_calls.is_empty() {
+                    let tcs: Vec<serde_json::Value> = m
+                        .tool_calls
+                        .iter()
+                        .map(|tc| {
+                            serde_json::json!({
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tc.name,
+                                    "arguments": serde_json::to_string(&tc.arguments).unwrap_or_default(),
+                                }
+                            })
+                        })
+                        .collect();
+                    msg["tool_calls"] = serde_json::json!(tcs);
+                }
+                msgs.push(msg);
             }
             msgs
         };
@@ -311,15 +330,34 @@ impl ModelProvider for OpenAICompatProvider {
                 msgs.push(serde_json::json!({"role": "system", "content": system}));
             }
             for m in &request.messages {
-                msgs.push(serde_json::json!({
-                    "role": match m.role {
-                        Role::System => "system",
-                        Role::User => "user",
-                        Role::Assistant => "assistant",
-                        Role::Tool => "tool",
-                    },
-                    "content": m.content,
-                }));
+                let role = match m.role {
+                    Role::System => "system",
+                    Role::User => "user",
+                    Role::Assistant => "assistant",
+                    Role::Tool => "tool",
+                };
+                let mut msg = serde_json::json!({"role": role, "content": m.content});
+                if let Some(tc_id) = &m.tool_call_id {
+                    msg["tool_call_id"] = serde_json::json!(tc_id);
+                }
+                if !m.tool_calls.is_empty() {
+                    let tcs: Vec<serde_json::Value> = m
+                        .tool_calls
+                        .iter()
+                        .map(|tc| {
+                            serde_json::json!({
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tc.name,
+                                    "arguments": serde_json::to_string(&tc.arguments).unwrap_or_default(),
+                                }
+                            })
+                        })
+                        .collect();
+                    msg["tool_calls"] = serde_json::json!(tcs);
+                }
+                msgs.push(msg);
             }
             msgs
         };

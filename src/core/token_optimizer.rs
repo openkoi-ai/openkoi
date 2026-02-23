@@ -298,6 +298,7 @@ pub fn prune_messages(messages: Vec<Message>, token_budget: u32) -> Vec<Message>
                     role: msg.role,
                     content: PRUNED_PLACEHOLDER.to_string(),
                     tool_call_id: msg.tool_call_id,
+                    tool_calls: msg.tool_calls,
                 });
                 continue;
             }

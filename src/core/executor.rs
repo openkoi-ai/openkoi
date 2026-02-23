@@ -134,12 +134,18 @@ impl Executor {
             // Model made tool calls — dispatch them
             total_tool_calls += response.tool_calls.len() as u32;
 
-            // Add the assistant's response (with tool calls) to conversation
+            // Add the assistant's response (with tool calls) to conversation.
+            // OpenAI-compatible APIs require the assistant message to carry
+            // the tool_calls array so that subsequent Role::Tool messages
+            // can be matched to the originating call.
             if !response.content.is_empty() {
                 accumulated_content.push_str(&response.content);
                 accumulated_content.push('\n');
             }
-            messages.push(Message::assistant(&response.content));
+            messages.push(Message::assistant_with_tool_calls(
+                &response.content,
+                response.tool_calls.clone(),
+            ));
 
             // Dispatch each tool call (truncate outputs to prevent context blowup)
             for tc in &response.tool_calls {

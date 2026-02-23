@@ -122,6 +122,25 @@ impl ModelProvider for OpenAIProvider {
                 if let Some(tc_id) = &m.tool_call_id {
                     msg["tool_call_id"] = serde_json::json!(tc_id);
                 }
+                // Include tool_calls on assistant messages so that subsequent
+                // tool-result messages are properly paired (required by OpenAI API).
+                if !m.tool_calls.is_empty() {
+                    let tcs: Vec<serde_json::Value> = m
+                        .tool_calls
+                        .iter()
+                        .map(|tc| {
+                            serde_json::json!({
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tc.name,
+                                    "arguments": serde_json::to_string(&tc.arguments).unwrap_or_default(),
+                                }
+                            })
+                        })
+                        .collect();
+                    msg["tool_calls"] = serde_json::json!(tcs);
+                }
                 msgs.push(msg);
             }
             msgs
@@ -255,6 +274,23 @@ impl ModelProvider for OpenAIProvider {
                 let mut msg = serde_json::json!({"role": role, "content": m.content});
                 if let Some(tc_id) = &m.tool_call_id {
                     msg["tool_call_id"] = serde_json::json!(tc_id);
+                }
+                if !m.tool_calls.is_empty() {
+                    let tcs: Vec<serde_json::Value> = m
+                        .tool_calls
+                        .iter()
+                        .map(|tc| {
+                            serde_json::json!({
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tc.name,
+                                    "arguments": serde_json::to_string(&tc.arguments).unwrap_or_default(),
+                                }
+                            })
+                        })
+                        .collect();
+                    msg["tool_calls"] = serde_json::json!(tcs);
                 }
                 msgs.push(msg);
             }
