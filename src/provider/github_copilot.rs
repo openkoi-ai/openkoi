@@ -1,15 +1,19 @@
 // src/provider/github_copilot.rs — GitHub Copilot provider (OAuth device-code flow)
 //
-// Uses GitHub's device code flow for authentication, then hits the
-// OpenAI-compatible API at api.githubcopilot.com/chat/completions.
+// Uses GitHub's device code flow for authentication, then exchanges the
+// GitHub OAuth token (gho_*) for a short-lived Copilot session token via
+// api.github.com/copilot_internal/v2/token. The session token (~30min TTL)
+// is used for all api.githubcopilot.com requests (models, chat completions).
 //
-// The token never expires — store as OAuth { access: token, refresh: token, expires: 0 }.
+// The GitHub OAuth token never expires — store as OAuth { access: token, refresh: token, expires: 0 }.
 
 use async_trait::async_trait;
 use futures::Stream;
 use futures::StreamExt;
 use reqwest_eventsource::{Event, RequestBuilderExt};
 use std::pin::Pin;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use super::model_cache;
 use super::{
@@ -26,13 +30,39 @@ pub const GITHUB_CLIENT_ID: &str = "Ov23liEs4iRqyaV7Fa5k";
 /// Default API endpoint.
 const API_BASE: &str = "https://api.githubcopilot.com";
 
+/// GitHub API endpoint for Copilot session token exchange.
+const COPILOT_TOKEN_URL: &str = "https://api.github.com/copilot_internal/v2/token";
+
 /// Probe timeout for /models endpoint.
 const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
-pub struct GithubCopilotProvider {
+/// A short-lived Copilot session token obtained by exchanging the GitHub OAuth token.
+#[derive(Debug, Clone)]
+struct CopilotSessionToken {
+    /// The session token to use as `Authorization: Bearer <token>`.
     token: String,
+    /// Unix timestamp (seconds) when this token expires.
+    expires_at: u64,
+}
+
+impl CopilotSessionToken {
+    /// Whether the session token has expired (with a 60-second grace period).
+    fn is_expired(&self) -> bool {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        now >= self.expires_at.saturating_sub(60)
+    }
+}
+
+pub struct GithubCopilotProvider {
+    /// The long-lived GitHub OAuth token (gho_*) used to obtain session tokens.
+    github_token: String,
     client: reqwest::Client,
     api_base: String,
+    /// Short-lived Copilot session token, refreshed automatically.
+    session_token: Arc<Mutex<Option<CopilotSessionToken>>>,
     /// Dynamically probed models, populated by `probe_models()`.
     /// Falls back to static defaults if probing fails or hasn't run.
     probed_models: Option<Vec<ModelInfo>>,
@@ -41,6 +71,7 @@ pub struct GithubCopilotProvider {
 /// Static fallback models (used when probing fails or cache is cold on first install).
 fn static_models() -> Vec<ModelInfo> {
     vec![
+        // ─── GPT models ────────────────────────────────────────────
         ModelInfo {
             id: "gpt-4o".into(),
             name: "GPT-4o (Copilot)".into(),
@@ -68,6 +99,19 @@ fn static_models() -> Vec<ModelInfo> {
             ..Default::default()
         },
         ModelInfo {
+            id: "gpt-4.1".into(),
+            name: "GPT-4.1 (Copilot)".into(),
+            context_window: 1_047_576,
+            max_output_tokens: 32_768,
+            supports_tools: true,
+            supports_streaming: true,
+            input_price_per_mtok: 0.0,
+            output_price_per_mtok: 0.0,
+            supports_vision: true,
+            family: Some("gpt-4.1".into()),
+            ..Default::default()
+        },
+        ModelInfo {
             id: "gpt-3.5-turbo".into(),
             name: "GPT-3.5 Turbo (Copilot)".into(),
             context_window: 16_384,
@@ -79,15 +123,82 @@ fn static_models() -> Vec<ModelInfo> {
             family: Some("gpt-3.5".into()),
             ..Default::default()
         },
+        // ─── Claude models ─────────────────────────────────────────
+        ModelInfo {
+            id: "claude-3.5-sonnet".into(),
+            name: "Claude 3.5 Sonnet (Copilot)".into(),
+            context_window: 200_000,
+            max_output_tokens: 8_192,
+            supports_tools: true,
+            supports_streaming: true,
+            input_price_per_mtok: 0.0,
+            output_price_per_mtok: 0.0,
+            supports_vision: true,
+            family: Some("claude-3.5".into()),
+            ..Default::default()
+        },
+        ModelInfo {
+            id: "claude-sonnet-4".into(),
+            name: "Claude Sonnet 4 (Copilot)".into(),
+            context_window: 200_000,
+            max_output_tokens: 16_384,
+            supports_tools: true,
+            supports_streaming: true,
+            input_price_per_mtok: 0.0,
+            output_price_per_mtok: 0.0,
+            supports_vision: true,
+            family: Some("claude-4".into()),
+            ..Default::default()
+        },
+        // ─── Reasoning models ──────────────────────────────────────
+        ModelInfo {
+            id: "o3-mini".into(),
+            name: "o3-mini (Copilot)".into(),
+            context_window: 200_000,
+            max_output_tokens: 100_000,
+            supports_tools: true,
+            supports_streaming: true,
+            input_price_per_mtok: 0.0,
+            output_price_per_mtok: 0.0,
+            family: Some("o3".into()),
+            ..Default::default()
+        },
+        ModelInfo {
+            id: "o4-mini".into(),
+            name: "o4-mini (Copilot)".into(),
+            context_window: 200_000,
+            max_output_tokens: 100_000,
+            supports_tools: true,
+            supports_streaming: true,
+            input_price_per_mtok: 0.0,
+            output_price_per_mtok: 0.0,
+            family: Some("o4".into()),
+            ..Default::default()
+        },
+        // ─── Gemini models ─────────────────────────────────────────
+        ModelInfo {
+            id: "gemini-2.0-flash".into(),
+            name: "Gemini 2.0 Flash (Copilot)".into(),
+            context_window: 1_048_576,
+            max_output_tokens: 8_192,
+            supports_tools: true,
+            supports_streaming: true,
+            input_price_per_mtok: 0.0,
+            output_price_per_mtok: 0.0,
+            supports_vision: true,
+            family: Some("gemini-2.0".into()),
+            ..Default::default()
+        },
     ]
 }
 
 impl GithubCopilotProvider {
     pub fn new(token: String) -> Self {
         Self {
-            token,
+            github_token: token,
             client: reqwest::Client::new(),
             api_base: API_BASE.into(),
+            session_token: Arc::new(Mutex::new(None)),
             probed_models: None,
         }
     }
@@ -95,11 +206,139 @@ impl GithubCopilotProvider {
     /// Create with a custom API base (for GitHub Enterprise Copilot).
     pub fn with_base(token: String, api_base: String) -> Self {
         Self {
-            token,
+            github_token: token,
             client: reqwest::Client::new(),
             api_base,
+            session_token: Arc::new(Mutex::new(None)),
             probed_models: None,
         }
+    }
+
+    /// Exchange the GitHub OAuth token for a short-lived Copilot session token.
+    ///
+    /// The session token is obtained from `api.github.com/copilot_internal/v2/token`
+    /// and typically expires after ~30 minutes. This method caches the token and
+    /// only re-fetches when expired.
+    async fn ensure_session_token(&self) -> Result<String, OpenKoiError> {
+        let mut guard = self.session_token.lock().await;
+
+        // Return cached token if still valid
+        if let Some(ref st) = *guard {
+            if !st.is_expired() {
+                return Ok(st.token.clone());
+            }
+            tracing::debug!("Copilot session token expired, refreshing...");
+        }
+
+        // Exchange GitHub OAuth token for Copilot session token
+        let response = self
+            .client
+            .get(COPILOT_TOKEN_URL)
+            .header("Authorization", format!("token {}", self.github_token))
+            .header(
+                "User-Agent",
+                format!("openkoi/{}", env!("CARGO_PKG_VERSION")),
+            )
+            .header(
+                "Editor-Version",
+                format!("openkoi/{}", env!("CARGO_PKG_VERSION")),
+            )
+            .header("Editor-Plugin-Version", format!("openkoi/{}", env!("CARGO_PKG_VERSION")))
+            .timeout(std::time::Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| OpenKoiError::Provider {
+                provider: "copilot".into(),
+                message: format!("Failed to exchange token at {COPILOT_TOKEN_URL}: {e}"),
+                retriable: e.is_timeout() || e.is_connect(),
+            })?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(OpenKoiError::Provider {
+                provider: "copilot".into(),
+                message: format!(
+                    "Copilot token exchange failed (HTTP {status}): {body}. \
+                     Your GitHub token may have been revoked. \
+                     Re-authenticate with: openkoi connect copilot"
+                ),
+                retriable: status.is_server_error(),
+            });
+        }
+
+        let body: serde_json::Value =
+            response.json().await.map_err(|e| OpenKoiError::Provider {
+                provider: "copilot".into(),
+                message: format!("Failed to parse token exchange response: {e}"),
+                retriable: false,
+            })?;
+
+        let token = body["token"]
+            .as_str()
+            .ok_or_else(|| OpenKoiError::Provider {
+                provider: "copilot".into(),
+                message: "Token exchange response missing 'token' field".into(),
+                retriable: false,
+            })?
+            .to_string();
+
+        let expires_at = body["expires_at"].as_u64().unwrap_or_else(|| {
+            // If no expires_at in response, default to 25 minutes from now
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+                + 25 * 60
+        });
+
+        tracing::info!(
+            "Copilot session token obtained (expires_at={})",
+            expires_at
+        );
+
+        let session = CopilotSessionToken {
+            token: token.clone(),
+            expires_at,
+        };
+        *guard = Some(session);
+
+        Ok(token)
+    }
+
+    /// Common Copilot API headers required by api.githubcopilot.com.
+    fn copilot_headers(&self, bearer_token: &str) -> reqwest::header::HeaderMap {
+        let mut headers = reqwest::header::HeaderMap::new();
+        let version = env!("CARGO_PKG_VERSION");
+
+        headers.insert(
+            "Authorization",
+            format!("Bearer {bearer_token}").parse().unwrap(),
+        );
+        headers.insert(
+            "User-Agent",
+            format!("openkoi/{version}").parse().unwrap(),
+        );
+        headers.insert(
+            "Editor-Version",
+            format!("openkoi/{version}").parse().unwrap(),
+        );
+        headers.insert(
+            "Editor-Plugin-Version",
+            format!("openkoi/{version}").parse().unwrap(),
+        );
+        headers.insert(
+            "Copilot-Integration-Id",
+            "openkoi".parse().unwrap(),
+        );
+        headers.insert(
+            "Openai-Organization",
+            "github-copilot".parse().unwrap(),
+        );
+        headers.insert("Openai-Intent", "conversation-edits".parse().unwrap());
+        headers.insert("x-initiator", "user".parse().unwrap());
+
+        headers
     }
 
     /// Probe the Copilot `/models` endpoint to discover available models.
@@ -114,8 +353,19 @@ impl GithubCopilotProvider {
             return;
         }
 
-        // Probe the API
-        match self.fetch_models_from_api().await {
+        // Obtain a session token first
+        let session_token = match self.ensure_session_token().await {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!(
+                    "Copilot: failed to obtain session token: {e}. Using static fallback."
+                );
+                return;
+            }
+        };
+
+        // Probe the API with the session token
+        match self.fetch_models_from_api(&session_token).await {
             Ok(models) if !models.is_empty() => {
                 tracing::info!(
                     "Copilot: probed {} models from API: [{}]",
@@ -139,16 +389,17 @@ impl GithubCopilotProvider {
     }
 
     /// Query `GET {api_base}/models` and parse the response.
-    async fn fetch_models_from_api(&self) -> Result<Vec<ModelInfo>, OpenKoiError> {
+    async fn fetch_models_from_api(
+        &self,
+        session_token: &str,
+    ) -> Result<Vec<ModelInfo>, OpenKoiError> {
         let url = format!("{}/models", self.api_base);
+        let headers = self.copilot_headers(session_token);
+
         let response = self
             .client
             .get(&url)
-            .header("Authorization", format!("Bearer {}", self.token))
-            .header(
-                "User-Agent",
-                format!("openkoi/{}", env!("CARGO_PKG_VERSION")),
-            )
+            .headers(headers)
             .timeout(PROBE_TIMEOUT)
             .send()
             .await
@@ -328,17 +579,13 @@ impl ModelProvider for GithubCopilotProvider {
 
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, OpenKoiError> {
         let body = self.build_request_body(&request);
+        let session_token = self.ensure_session_token().await?;
+        let headers = self.copilot_headers(&session_token);
 
         let response = self
             .client
             .post(self.chat_url())
-            .header("Authorization", format!("Bearer {}", self.token))
-            .header(
-                "User-Agent",
-                format!("openkoi/{}", env!("CARGO_PKG_VERSION")),
-            )
-            .header("Openai-Intent", "conversation-edits")
-            .header("x-initiator", "user")
+            .headers(headers)
             .json(&body)
             .send()
             .await
@@ -422,16 +669,13 @@ impl ModelProvider for GithubCopilotProvider {
         body["stream"] = serde_json::json!(true);
         body["stream_options"] = serde_json::json!({"include_usage": true});
 
+        let session_token = self.ensure_session_token().await?;
+        let headers = self.copilot_headers(&session_token);
+
         let request_builder = self
             .client
             .post(self.chat_url())
-            .header("Authorization", format!("Bearer {}", self.token))
-            .header(
-                "User-Agent",
-                format!("openkoi/{}", env!("CARGO_PKG_VERSION")),
-            )
-            .header("Openai-Intent", "conversation-edits")
-            .header("x-initiator", "user")
+            .headers(headers)
             .json(&body);
 
         let mut es = request_builder
