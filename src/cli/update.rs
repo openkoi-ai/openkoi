@@ -1,7 +1,13 @@
 // src/cli/update.rs — Self-update command
 //
-// Checks GitHub releases for the latest version and downloads the binary
-// for the current platform.
+// Checks GitHub releases for the latest version, downloads the platform-specific
+// .tar.gz archive, verifies its SHA-256 checksum, extracts the binary, and
+// replaces the current executable.
+
+use flate2::read::GzDecoder;
+use sha2::{Digest, Sha256};
+use std::io::Read;
+use tar::Archive;
 
 const GITHUB_REPO: &str = "openkoi-ai/openkoi";
 const RELEASES_API: &str = "https://api.github.com/repos/openkoi-ai/openkoi/releases/latest";
@@ -69,23 +75,24 @@ pub async fn run_update(version: Option<String>, check_only: bool) -> anyhow::Re
     }
 
     // Determine platform asset name
-    let asset_name = platform_asset_name()?;
+    let platform_name = platform_asset_name()?;
     let assets = release["assets"]
         .as_array()
         .ok_or_else(|| anyhow::anyhow!("No assets found in release"))?;
 
-    let asset = assets
+    // Find the .tar.gz archive asset
+    let archive_asset = assets
         .iter()
         .find(|a| {
             a["name"]
                 .as_str()
-                .map(|n| n.contains(&asset_name))
+                .map(|n| n.contains(&platform_name) && n.ends_with(".tar.gz"))
                 .unwrap_or(false)
         })
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "No binary found for platform '{}'. Available: {}",
-                asset_name,
+                "No archive found for platform '{}'. Available: {}",
+                platform_name,
                 assets
                     .iter()
                     .filter_map(|a| a["name"].as_str())
@@ -94,22 +101,76 @@ pub async fn run_update(version: Option<String>, check_only: bool) -> anyhow::Re
             )
         })?;
 
-    let download_url = asset["browser_download_url"]
+    let archive_name = archive_asset["name"]
+        .as_str()
+        .unwrap_or("binary");
+
+    let download_url = archive_asset["browser_download_url"]
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("Missing download URL"))?;
 
-    println!(
-        "Downloading {}...",
-        asset["name"].as_str().unwrap_or("binary")
-    );
+    // Find the .sha256 checksum asset
+    let checksum_asset = assets.iter().find(|a| {
+        a["name"]
+            .as_str()
+            .map(|n| n.contains(&platform_name) && n.ends_with(".sha256"))
+            .unwrap_or(false)
+    });
 
-    let binary_data = client
+    println!("Downloading {}...", archive_name);
+
+    let archive_data = client
         .get(download_url)
         .header("User-Agent", format!("openkoi/{}", current))
         .send()
         .await?
         .bytes()
         .await?;
+
+    // Verify SHA-256 checksum if available
+    if let Some(checksum_asset) = checksum_asset {
+        let checksum_url = checksum_asset["browser_download_url"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("Missing checksum download URL"))?;
+
+        eprint!("Verifying checksum... ");
+
+        let checksum_text = client
+            .get(checksum_url)
+            .header("User-Agent", format!("openkoi/{}", current))
+            .send()
+            .await?
+            .text()
+            .await?;
+
+        // Checksum file format: "<hex_hash>  <filename>\n"
+        let expected_hash = checksum_text
+            .split_whitespace()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("Invalid checksum file format"))?
+            .to_lowercase();
+
+        let mut hasher = Sha256::new();
+        hasher.update(&archive_data);
+        let actual_hash = hex::encode(hasher.finalize());
+
+        if actual_hash != expected_hash {
+            anyhow::bail!(
+                "Checksum mismatch!\n  Expected: {}\n  Got:      {}\nThe download may be corrupted. Please try again.",
+                expected_hash,
+                actual_hash
+            );
+        }
+
+        println!("ok");
+    } else {
+        println!("Warning: No checksum file found; skipping integrity verification.");
+    }
+
+    // Extract the binary from the .tar.gz archive
+    eprint!("Extracting binary... ");
+    let binary_data = extract_binary_from_tar_gz(&archive_data)?;
+    println!("ok");
 
     // Write to a temp file and replace current binary
     let current_exe = std::env::current_exe()?;
@@ -141,7 +202,30 @@ pub async fn run_update(version: Option<String>, check_only: bool) -> anyhow::Re
     Ok(())
 }
 
-/// Determine the expected asset name for the current platform.
+/// Extract the `openkoi` binary from a .tar.gz archive in memory.
+fn extract_binary_from_tar_gz(archive_data: &[u8]) -> anyhow::Result<Vec<u8>> {
+    let gz = GzDecoder::new(archive_data);
+    let mut archive = Archive::new(gz);
+
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        let path = entry.path()?;
+
+        // The binary name inside the archive is "openkoi" (set in release.yml matrix.binary)
+        if path.file_name().and_then(|n| n.to_str()) == Some("openkoi") {
+            let mut buf = Vec::new();
+            entry.read_to_end(&mut buf)?;
+            return Ok(buf);
+        }
+    }
+
+    anyhow::bail!(
+        "Could not find 'openkoi' binary inside the archive. \
+         The release archive may have an unexpected structure."
+    )
+}
+
+/// Determine the expected asset name substring for the current platform.
 fn platform_asset_name() -> anyhow::Result<String> {
     let os = if cfg!(target_os = "macos") {
         "macos"
@@ -160,4 +244,83 @@ fn platform_asset_name() -> anyhow::Result<String> {
     };
 
     Ok(format!("{}-{}", os, arch))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_platform_asset_name_format() {
+        let name = platform_asset_name().unwrap();
+        // Must be "<os>-<arch>"
+        let parts: Vec<&str> = name.split('-').collect();
+        assert_eq!(parts.len(), 2);
+        assert!(
+            parts[0] == "macos" || parts[0] == "linux",
+            "Unexpected OS: {}",
+            parts[0]
+        );
+        assert!(
+            parts[1] == "arm64" || parts[1] == "x86_64",
+            "Unexpected arch: {}",
+            parts[1]
+        );
+    }
+
+    #[test]
+    fn test_extract_binary_from_tar_gz() {
+        // Build a .tar.gz in memory with a fake "openkoi" binary
+        let fake_binary = b"#!/bin/sh\necho hello\n";
+
+        let mut tar_builder = tar::Builder::new(Vec::new());
+        let mut header = tar::Header::new_gnu();
+        header.set_size(fake_binary.len() as u64);
+        header.set_mode(0o755);
+        header.set_cksum();
+        tar_builder
+            .append_data(&mut header, "openkoi", &fake_binary[..])
+            .unwrap();
+        let tar_data = tar_builder.into_inner().unwrap();
+
+        // Gzip compress the tar
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&tar_data).unwrap();
+        let gz_data = encoder.finish().unwrap();
+
+        // Extract and verify
+        let extracted = extract_binary_from_tar_gz(&gz_data).unwrap();
+        assert_eq!(extracted, fake_binary);
+    }
+
+    #[test]
+    fn test_extract_binary_missing_entry() {
+        // Build a .tar.gz with a different filename
+        let mut tar_builder = tar::Builder::new(Vec::new());
+        let mut header = tar::Header::new_gnu();
+        header.set_size(5);
+        header.set_mode(0o755);
+        header.set_cksum();
+        tar_builder
+            .append_data(&mut header, "not-openkoi", &b"hello"[..])
+            .unwrap();
+        let tar_data = tar_builder.into_inner().unwrap();
+
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&tar_data).unwrap();
+        let gz_data = encoder.finish().unwrap();
+
+        let result = extract_binary_from_tar_gz(&gz_data);
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().to_string().contains("Could not find"),
+            "Should report missing binary"
+        );
+    }
 }
