@@ -40,6 +40,7 @@ pub fn build_system_prompt(
 /// Build the complete system prompt with optional conversation history.
 /// When `conversation_history` is provided, it is included as a section
 /// so the model has context from prior messages in the same chat session.
+#[allow(clippy::too_many_arguments)]
 pub fn build_system_prompt_with_history(
     task: &TaskInput,
     plan: &Plan,

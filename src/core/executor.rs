@@ -190,13 +190,11 @@ impl Executor {
                     messages.push(Message::user(
                         "[SYSTEM WARNING] You have made a very high number of tool calls. \
                          Please wrap up your current task and provide a final response. \
-                         Further tool calls may be terminated."
+                         Further tool calls may be terminated.",
                     ));
                 }
                 ToolLoopStatus::Warning => {
-                    tracing::info!(
-                        "Tool loop warning: {} tool calls so far", total_tool_calls
-                    );
+                    tracing::info!("Tool loop warning: {} tool calls so far", total_tool_calls);
                 }
                 ToolLoopStatus::Ok => {}
             }
@@ -516,9 +514,7 @@ fn extract_file_path_from_tool_call(tc: &crate::provider::ToolCall) -> Option<St
         "insert_text",
     ];
 
-    let is_file_tool = FILE_WRITE_PATTERNS
-        .iter()
-        .any(|p| tool_name.contains(p));
+    let is_file_tool = FILE_WRITE_PATTERNS.iter().any(|p| tool_name.contains(p));
 
     if !is_file_tool {
         return None;

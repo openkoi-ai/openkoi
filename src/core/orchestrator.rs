@@ -72,14 +72,8 @@ impl Orchestrator {
 
         // Look up context window from the provider's model catalog
         let models = provider.models();
-        let executor_model_info = models
-            .iter()
-            .find(|m| m.id == executor_model_id)
-            .cloned();
-        let evaluator_model_info = models
-            .iter()
-            .find(|m| m.id == evaluator_model_id)
-            .cloned();
+        let executor_model_info = models.iter().find(|m| m.id == executor_model_id).cloned();
+        let evaluator_model_info = models.iter().find(|m| m.id == evaluator_model_id).cloned();
         let context_window = executor_model_info
             .as_ref()
             .map(|m| m.context_window)
@@ -273,11 +267,17 @@ impl Orchestrator {
                     // Record cost using ModelInfo pricing when available (accurate),
                     // falling back to string-based model name lookup (heuristic).
                     if let Some(ref info) = self.executor_model_info {
-                        self.cost_tracker
-                            .record_with_model_info_and_phase(info, &output.usage, "execute");
+                        self.cost_tracker.record_with_model_info_and_phase(
+                            info,
+                            &output.usage,
+                            "execute",
+                        );
                     } else {
-                        self.cost_tracker
-                            .record_with_phase(&self.executor_model_id, &output.usage, "execute");
+                        self.cost_tracker.record_with_phase(
+                            &self.executor_model_id,
+                            &output.usage,
+                            "execute",
+                        );
                     }
                     // Sync cycle-level usage from output
                     cycle.usage = output.usage.clone();
@@ -342,21 +342,31 @@ impl Orchestrator {
                         Ok(evaluation) => {
                             budget.deduct(&evaluation.usage);
                             if let Some(ref info) = self.evaluator_model_info {
-                                self.cost_tracker
-                                    .record_with_model_info_and_phase(info, &evaluation.usage, "evaluate");
+                                self.cost_tracker.record_with_model_info_and_phase(
+                                    info,
+                                    &evaluation.usage,
+                                    "evaluate",
+                                );
                             } else {
-                                self.cost_tracker
-                                    .record_with_phase(&self.evaluator_model_id, &evaluation.usage, "evaluate");
+                                self.cost_tracker.record_with_phase(
+                                    &self.evaluator_model_id,
+                                    &evaluation.usage,
+                                    "evaluate",
+                                );
                             }
                             cycle.evaluation = Some(evaluation);
                         }
                         Err(e) => {
-                            tracing::warn!("Evaluation failed: {}, using conservative default score", e);
+                            tracing::warn!(
+                                "Evaluation failed: {}, using conservative default score",
+                                e
+                            );
                             cycle.evaluation = Some(Evaluation {
                                 score: 0.5,
                                 dimensions: vec![],
                                 findings: vec![],
-                                suggestion: "Evaluation failed; score is a conservative default.".into(),
+                                suggestion: "Evaluation failed; score is a conservative default."
+                                    .into(),
                                 usage: crate::provider::TokenUsage::default(),
                                 evaluator_skill: "default".into(),
                                 tests_passed: false,

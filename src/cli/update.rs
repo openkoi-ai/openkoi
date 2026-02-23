@@ -101,9 +101,7 @@ pub async fn run_update(version: Option<String>, check_only: bool) -> anyhow::Re
             )
         })?;
 
-    let archive_name = archive_asset["name"]
-        .as_str()
-        .unwrap_or("binary");
+    let archive_name = archive_asset["name"].as_str().unwrap_or("binary");
 
     let download_url = archive_asset["browser_download_url"]
         .as_str()

@@ -194,7 +194,9 @@ pub async fn run_chat(
                 // Accumulate conversation history for cross-message context.
                 // Truncate the response to keep the summary compact.
                 let response_summary = if result.output.content.len() > 500 {
-                    let end = result.output.content
+                    let end = result
+                        .output
+                        .content
                         .char_indices()
                         .nth(500)
                         .map(|(i, _)| i)
@@ -216,7 +218,8 @@ pub async fn run_chat(
                         .find("\n\n")
                         .map(|i| trim_point + i + 2)
                         .unwrap_or(trim_point);
-                    state.conversation_summary = state.conversation_summary[safe_trim..].to_string();
+                    state.conversation_summary =
+                        state.conversation_summary[safe_trim..].to_string();
                 }
 
                 // Log usage event
