@@ -1,13 +1,10 @@
 // src/core/eval_cache.rs — Evaluation caching and skip logic
 
-use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
 use super::types::{IterationCycle, IterationEngineConfig};
 
-pub struct EvalCache {
-    cache: HashMap<u64, f32>,
-}
+pub struct EvalCache;
 
 impl Default for EvalCache {
     fn default() -> Self {
@@ -17,9 +14,7 @@ impl Default for EvalCache {
 
 impl EvalCache {
     pub fn new() -> Self {
-        Self {
-            cache: HashMap::new(),
-        }
+        Self
     }
 
     /// Determine if evaluation can be skipped for this iteration.
@@ -57,18 +52,6 @@ impl EvalCache {
             output.content.hash(&mut hasher);
         }
         hasher.finish()
-    }
-
-    /// Cache an evaluation score for a given output hash.
-    pub fn cache_score(&mut self, cycle: &IterationCycle, score: f32) {
-        let hash = self.output_hash(cycle);
-        self.cache.insert(hash, score);
-    }
-
-    /// Look up a cached score.
-    pub fn get_cached_score(&self, cycle: &IterationCycle) -> Option<f32> {
-        let hash = self.output_hash(cycle);
-        self.cache.get(&hash).copied()
     }
 }
 
@@ -156,14 +139,5 @@ mod tests {
         let cache = EvalCache::new();
         let current = cycle_with_output("first output");
         assert!(!cache.should_skip_eval(&current, &[], &default_config()));
-    }
-
-    #[test]
-    fn test_cache_and_retrieve_score() {
-        let mut cache = EvalCache::new();
-        let cycle = cycle_with_output("test content");
-        assert_eq!(cache.get_cached_score(&cycle), None);
-        cache.cache_score(&cycle, 0.92);
-        assert_eq!(cache.get_cached_score(&cycle), Some(0.92));
     }
 }

@@ -13,6 +13,7 @@ use super::token_optimizer::TokenOptimizer;
 use super::types::*;
 use crate::evaluator::EvaluatorFramework;
 use crate::integrations::registry::IntegrationRegistry;
+use crate::learner::extractor::LearningExtractor;
 use crate::learner::types::RankedSkill;
 use crate::memory::recall::HistoryRecall;
 use crate::memory::store::Store;
@@ -26,6 +27,7 @@ use crate::soul::loader::Soul;
 pub struct Orchestrator {
     executor: Executor,
     evaluator: EvaluatorFramework,
+    extractor: LearningExtractor,
     token_optimizer: TokenOptimizer,
     eval_cache: EvalCache,
     safety: SafetyChecker,
@@ -40,6 +42,8 @@ pub struct Orchestrator {
     executor_model_info: Option<ModelInfo>,
     evaluator_model_info: Option<ModelInfo>,
     /// Optional persistence store for recording task/cycle/finding data.
+    /// Uses `std::sync::Mutex` (not tokio) because the lock is never held across
+    /// an `.await` — all store operations are short synchronous writes.
     store: Option<Arc<Mutex<Store>>>,
     /// Optional callback for real-time progress events.
     on_progress: Option<Box<dyn Fn(ProgressEvent) + Send>>,
@@ -88,9 +92,10 @@ impl Orchestrator {
                 ),
             evaluator: EvaluatorFramework::new(
                 skill_registry,
-                provider,
+                provider.clone(),
                 evaluator_model_id.clone(),
             ),
+            extractor: LearningExtractor::new(provider, evaluator_model_id.clone()),
             token_optimizer: TokenOptimizer::new(),
             eval_cache: EvalCache::new(),
             safety,
@@ -223,7 +228,6 @@ impl Orchestrator {
                     &task,
                     &plan,
                     &cycles,
-                    &budget,
                     &ctx.soul,
                     &ctx.ranked_skills,
                     &ctx.recall,
@@ -245,7 +249,6 @@ impl Orchestrator {
                     &task,
                     &plan,
                     &cycles,
-                    &budget,
                     &ctx.soul,
                     &ctx.ranked_skills,
                     &ctx.recall,
@@ -313,14 +316,18 @@ impl Orchestrator {
                     // which prunes proactively. Mark this cycle as needing retry.
                     cycle.decision = IterationDecision::Continue;
                     cycles.push(cycle);
-                    self.persist_cycle(&task_id, cycles.last().unwrap(), i as usize);
+                    if let Some(last) = cycles.last() {
+                        self.persist_cycle(&task_id, last, i as usize);
+                    }
                     continue;
                 }
                 Err(e) => {
                     tracing::error!("Execution failed on iteration {}: {}", i, e);
                     cycle.decision = IterationDecision::AbortBudget;
                     cycles.push(cycle);
-                    self.persist_cycle(&task_id, cycles.last().unwrap(), i as usize);
+                    if let Some(last) = cycles.last() {
+                        self.persist_cycle(&task_id, last, i as usize);
+                    }
                     break;
                 }
             }
@@ -393,7 +400,9 @@ impl Orchestrator {
                 });
                 cycle.decision = abort_decision;
                 cycles.push(cycle);
-                self.persist_cycle(&task_id, cycles.last().unwrap(), i as usize);
+                if let Some(last) = cycles.last() {
+                    self.persist_cycle(&task_id, last, i as usize);
+                }
                 break;
             }
 
@@ -405,10 +414,11 @@ impl Orchestrator {
                 cycle.decision = IterationDecision::AcceptBest;
             }
 
-            // Track best
+            // Track best (>= favors the latest cycle on tie, since later iterations
+            // are more likely to have incorporated fix feedback)
             if best_idx.is_none()
                 || score
-                    > cycles
+                    >= cycles
                         .get(best_idx.unwrap())
                         .map(|c| c.score())
                         .unwrap_or(0.0)
@@ -426,7 +436,9 @@ impl Orchestrator {
 
             let should_continue = cycle.decision == IterationDecision::Continue;
             cycles.push(cycle);
-            self.persist_cycle(&task_id, cycles.last().unwrap(), i as usize);
+            if let Some(last) = cycles.last() {
+                self.persist_cycle(&task_id, last, i as usize);
+            }
 
             if !should_continue {
                 break;
@@ -438,12 +450,44 @@ impl Orchestrator {
             }
         }
 
-        // Collect skills used across all cycles (for caller to log)
-        let _skills_used: Vec<String> = ctx
-            .ranked_skills
-            .iter()
-            .map(|rs| rs.skill.name.clone())
-            .collect();
+        // (Skills used are collected below when building TaskResult.)
+
+        // Extract learnings from the completed iteration cycles
+        let store_guard = self.store.as_ref().and_then(|s| s.lock().ok());
+        let learnings = self
+            .extractor
+            .extract(&cycles, store_guard.as_deref())
+            .await;
+        drop(store_guard); // release lock before persisting
+
+        let mut learnings_saved: u32 = 0;
+        if !learnings.is_empty() {
+            if let Some(ref store) = self.store {
+                if let Ok(s) = store.lock() {
+                    for learning in &learnings {
+                        let learning_id = uuid::Uuid::new_v4().to_string();
+                        if s.insert_learning(
+                            &learning_id,
+                            learning.learning_type.as_str(),
+                            &learning.content,
+                            learning.category.as_deref(),
+                            learning.confidence as f64,
+                            Some(&learning.source_task),
+                        )
+                        .is_ok()
+                        {
+                            learnings_saved += 1;
+                        }
+                    }
+                }
+            }
+            if learnings_saved > 0 {
+                tracing::info!(
+                    count = learnings_saved,
+                    "Extracted and saved learnings from iteration cycles",
+                );
+            }
+        }
 
         // Return best result
         let best = best_idx
@@ -488,7 +532,7 @@ impl Orchestrator {
             iterations,
             total_tokens,
             cost,
-            learnings_saved: 0,
+            learnings_saved,
             skills_used: ctx
                 .ranked_skills
                 .iter()

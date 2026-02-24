@@ -7,9 +7,14 @@ use super::ModelRef;
 pub struct ModelRoles {
     pub executor: ModelRef,
     pub evaluator: ModelRef,
+    /// Reserved for future LLM-based planning (currently the orchestrator builds
+    /// a trivial single-step plan without invoking a model). Configured via
+    /// `[models] planner = "..."` so the field must remain for config compat.
     pub planner: ModelRef,
     pub embedder: ModelRef,
     /// Optional small/fast model for cost-sensitive tasks (title gen, summaries, etc.).
+    /// Reserved for future use — not yet read at runtime. Configured via
+    /// `[models] small_model = "..."`.
     pub small: Option<ModelRef>,
 }
 

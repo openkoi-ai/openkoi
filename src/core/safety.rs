@@ -75,18 +75,9 @@ impl SafetyChecker {
         None
     }
 
-    /// Check if tool call count suggests a loop.
-    pub fn check_tool_loop(&self, tool_call_count: u32) -> ToolLoopStatus {
-        if tool_call_count >= self.tool_loop_circuit_breaker {
-            ToolLoopStatus::CircuitBreaker
-        } else if tool_call_count >= self.tool_loop_critical {
-            ToolLoopStatus::Critical
-        } else if tool_call_count >= self.tool_loop_warning {
-            ToolLoopStatus::Warning
-        } else {
-            ToolLoopStatus::Ok
-        }
-    }
+    // NOTE: Tool loop detection is handled by `Executor::check_tool_loop()` which
+    // runs inside the tool-call loop with per-round granularity. This method was
+    // a duplicate with identical logic. Use Executor's version instead.
 }
 
 #[derive(Debug, PartialEq)]
@@ -186,13 +177,6 @@ mod tests {
         assert_eq!(result, None);
     }
 
-    #[test]
-    fn test_tool_loop_status() {
-        let checker = test_checker();
-        assert_eq!(checker.check_tool_loop(5), ToolLoopStatus::Ok);
-        assert_eq!(checker.check_tool_loop(10), ToolLoopStatus::Warning);
-        assert_eq!(checker.check_tool_loop(20), ToolLoopStatus::Critical);
-        assert_eq!(checker.check_tool_loop(30), ToolLoopStatus::CircuitBreaker);
-        assert_eq!(checker.check_tool_loop(100), ToolLoopStatus::CircuitBreaker);
-    }
+    // Tool loop detection is now solely in Executor::check_tool_loop().
+    // See executor.rs tests for coverage.
 }

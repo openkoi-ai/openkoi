@@ -63,8 +63,11 @@ pub fn recall(
     }
 
     // Priority 4: Similar past tasks via text search
-    // (Vector search would require embedding the query; simplified here)
-    // This will be enhanced when embeddings are integrated
+    // TODO: Implement embedding-based similarity search once an embedding provider
+    // is wired up. This would populate `recall.similar_tasks` with summaries of
+    // past tasks that are semantically close to the current one, enabling the model
+    // to reuse successful strategies. The `task_embedding` field on HistoryRecall
+    // is reserved for this purpose.
 
     recall.tokens_used = used_tokens;
     Ok(recall)
