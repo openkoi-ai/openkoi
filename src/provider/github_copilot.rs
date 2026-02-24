@@ -1,9 +1,9 @@
 // src/provider/github_copilot.rs — GitHub Copilot provider (OAuth device-code flow)
 //
-// Uses GitHub's device code flow for authentication, then exchanges the
-// GitHub OAuth token (gho_*) for a short-lived Copilot session token via
-// api.github.com/copilot_internal/v2/token. The session token (~30min TTL)
-// is used for all api.githubcopilot.com requests (models, chat completions).
+// Uses GitHub's device code flow for authentication with the VS Code Copilot
+// Plugin client ID. The long-lived GitHub OAuth token (ghu_*) is exchanged
+// for a short-lived session token via api.github.com/copilot_internal/v2/token.
+// The session token (~30min TTL) is used for all api.githubcopilot.com requests.
 //
 // The GitHub OAuth token never expires — store as OAuth { access: token, refresh: token, expires: 0 }.
 
@@ -17,15 +17,19 @@ use tokio::sync::Mutex;
 
 use super::model_cache;
 use super::{
-    ChatChunk, ChatRequest, ChatResponse, ModelInfo, ModelProvider, Role, StopReason, TokenUsage,
-    ToolCallDelta,
+    ChatChunk, ChatRequest, ChatResponse, ModelInfo, ModelProvider, ModelStatus, Role, StopReason,
+    TokenUsage, ToolCallDelta,
 };
 use crate::auth::oauth;
 use crate::auth::AuthInfo;
 use crate::infra::errors::OpenKoiError;
 
-/// GitHub Copilot OAuth client ID .
-pub const GITHUB_CLIENT_ID: &str = "Ov23liEs4iRqyaV7Fa5k";
+/// VS Code GitHub Copilot Plugin client ID (GitHub App).
+///
+/// This is the canonical client ID used by copilot.vim, CopilotChat.nvim, and
+/// other Copilot integrations. It supports device code flow with empty scope
+/// and token exchange at copilot_internal/v2/token.
+pub const GITHUB_CLIENT_ID: &str = "Iv1.b507a08c87ecfe98";
 
 /// Default API endpoint.
 const API_BASE: &str = "https://api.githubcopilot.com";
@@ -39,7 +43,7 @@ const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 /// A short-lived Copilot session token obtained by exchanging the GitHub OAuth token.
 #[derive(Debug, Clone)]
 struct CopilotSessionToken {
-    /// The session token to use as `Authorization: Bearer <token>`.
+    /// The session token (tid=...) to use as `Authorization: Bearer <token>`.
     token: String,
     /// Unix timestamp (seconds) when this token expires.
     expires_at: u64,
@@ -57,7 +61,7 @@ impl CopilotSessionToken {
 }
 
 pub struct GithubCopilotProvider {
-    /// The long-lived GitHub OAuth token (gho_*) used to obtain session tokens.
+    /// The long-lived GitHub OAuth token (ghu_*) used to obtain session tokens.
     github_token: String,
     client: reqwest::Client,
     api_base: String,
@@ -75,45 +79,24 @@ pub struct GithubCopilotProvider {
 /// context windows are based on the Copilot proxy limits (which are
 /// smaller than direct API limits for some models).
 fn extra_models() -> Vec<ModelInfo> {
+    // Models that the Copilot /models API doesn't return but are supported.
+    // Sourced from:
+    //   - GitHub official docs: docs.github.com/en/copilot/reference/ai-models/supported-models
+    //   - models.dev/api.json (used by OpenCode)
+    // Last updated: 2026-02-23
     vec![
         // ─── Claude models ─────────────────────────────────────────
         ModelInfo {
-            id: "claude-3.5-sonnet".into(),
-            name: "Claude 3.5 Sonnet (Copilot)".into(),
-            context_window: 90_000,
-            max_output_tokens: 8_192,
+            id: "claude-haiku-4.5".into(),
+            name: "Claude Haiku 4.5 (Copilot)".into(),
+            context_window: 128_000,
+            max_output_tokens: 32_000,
             supports_tools: true,
             supports_streaming: true,
-            input_price_per_mtok: 0.0,
-            output_price_per_mtok: 0.0,
+            can_reason: true,
             supports_vision: true,
-            family: Some("claude-3.5".into()),
-            ..Default::default()
-        },
-        ModelInfo {
-            id: "claude-3.7-sonnet".into(),
-            name: "Claude 3.7 Sonnet (Copilot)".into(),
-            context_window: 200_000,
-            max_output_tokens: 16_384,
-            supports_tools: true,
-            supports_streaming: true,
-            input_price_per_mtok: 0.0,
-            output_price_per_mtok: 0.0,
-            supports_vision: true,
-            family: Some("claude-3.7".into()),
-            ..Default::default()
-        },
-        ModelInfo {
-            id: "claude-3.7-sonnet-thought".into(),
-            name: "Claude 3.7 Sonnet Thinking (Copilot)".into(),
-            context_window: 200_000,
-            max_output_tokens: 16_384,
-            supports_tools: true,
-            supports_streaming: true,
-            input_price_per_mtok: 0.0,
-            output_price_per_mtok: 0.0,
-            supports_vision: true,
-            family: Some("claude-3.7".into()),
+            supports_attachments: true,
+            family: Some("claude-haiku".into()),
             ..Default::default()
         },
         ModelInfo {
@@ -123,64 +106,187 @@ fn extra_models() -> Vec<ModelInfo> {
             max_output_tokens: 16_000,
             supports_tools: true,
             supports_streaming: true,
-            input_price_per_mtok: 0.0,
-            output_price_per_mtok: 0.0,
+            can_reason: true,
             supports_vision: true,
-            family: Some("claude-4".into()),
-            ..Default::default()
-        },
-        // ─── Reasoning models ──────────────────────────────────────
-        ModelInfo {
-            id: "o1".into(),
-            name: "o1 (Copilot)".into(),
-            context_window: 200_000,
-            max_output_tokens: 100_000,
-            supports_tools: true,
-            supports_streaming: true,
-            input_price_per_mtok: 0.0,
-            output_price_per_mtok: 0.0,
-            family: Some("o1".into()),
+            supports_attachments: true,
+            family: Some("claude-sonnet".into()),
             ..Default::default()
         },
         ModelInfo {
-            id: "o3-mini".into(),
-            name: "o3-mini (Copilot)".into(),
-            context_window: 200_000,
-            max_output_tokens: 100_000,
-            supports_tools: true,
-            supports_streaming: true,
-            input_price_per_mtok: 0.0,
-            output_price_per_mtok: 0.0,
-            family: Some("o3".into()),
-            ..Default::default()
-        },
-        ModelInfo {
-            id: "o4-mini".into(),
-            name: "o4-mini (Copilot)".into(),
+            id: "claude-sonnet-4.5".into(),
+            name: "Claude Sonnet 4.5 (Copilot)".into(),
             context_window: 128_000,
+            max_output_tokens: 32_000,
+            supports_tools: true,
+            supports_streaming: true,
+            can_reason: true,
+            supports_vision: true,
+            supports_attachments: true,
+            family: Some("claude-sonnet".into()),
+            ..Default::default()
+        },
+        ModelInfo {
+            id: "claude-sonnet-4.6".into(),
+            name: "Claude Sonnet 4.6 (Copilot)".into(),
+            context_window: 128_000,
+            max_output_tokens: 32_000,
+            supports_tools: true,
+            supports_streaming: true,
+            can_reason: true,
+            supports_vision: true,
+            supports_attachments: true,
+            family: Some("claude-sonnet".into()),
+            ..Default::default()
+        },
+        ModelInfo {
+            id: "claude-opus-4.5".into(),
+            name: "Claude Opus 4.5 (Copilot)".into(),
+            context_window: 128_000,
+            max_output_tokens: 32_000,
+            supports_tools: true,
+            supports_streaming: true,
+            can_reason: true,
+            supports_vision: true,
+            supports_attachments: true,
+            family: Some("claude-opus".into()),
+            ..Default::default()
+        },
+        ModelInfo {
+            id: "claude-opus-4.6".into(),
+            name: "Claude Opus 4.6 (Copilot)".into(),
+            context_window: 128_000,
+            max_output_tokens: 64_000,
+            supports_tools: true,
+            supports_streaming: true,
+            can_reason: true,
+            supports_vision: true,
+            supports_attachments: true,
+            family: Some("claude-opus".into()),
+            ..Default::default()
+        },
+        // ─── GPT models ────────────────────────────────────────────
+        ModelInfo {
+            id: "gpt-4o".into(),
+            name: "GPT-4o (Copilot)".into(),
+            context_window: 64_000,
             max_output_tokens: 16_384,
             supports_tools: true,
             supports_streaming: true,
-            input_price_per_mtok: 0.0,
-            output_price_per_mtok: 0.0,
             supports_vision: true,
-            family: Some("o4".into()),
+            supports_attachments: true,
+            family: Some("gpt-4o".into()),
+            ..Default::default()
+        },
+        ModelInfo {
+            id: "gpt-4.1".into(),
+            name: "GPT-4.1 (Copilot)".into(),
+            context_window: 64_000,
+            max_output_tokens: 16_384,
+            supports_tools: true,
+            supports_streaming: true,
+            supports_vision: true,
+            supports_attachments: true,
+            family: Some("gpt-4.1".into()),
+            ..Default::default()
+        },
+        ModelInfo {
+            id: "gpt-5-mini".into(),
+            name: "GPT-5 mini (Copilot)".into(),
+            context_window: 128_000,
+            max_output_tokens: 64_000,
+            supports_tools: true,
+            supports_streaming: true,
+            can_reason: true,
+            supports_vision: true,
+            supports_attachments: true,
+            family: Some("gpt-5".into()),
+            ..Default::default()
+        },
+        ModelInfo {
+            id: "gpt-5.1".into(),
+            name: "GPT-5.1 (Copilot)".into(),
+            context_window: 128_000,
+            max_output_tokens: 64_000,
+            supports_tools: true,
+            supports_streaming: true,
+            can_reason: true,
+            supports_vision: true,
+            supports_attachments: true,
+            family: Some("gpt-5.1".into()),
+            ..Default::default()
+        },
+        ModelInfo {
+            id: "gpt-5.1-codex".into(),
+            name: "GPT-5.1 Codex (Copilot)".into(),
+            context_window: 128_000,
+            max_output_tokens: 128_000,
+            supports_tools: true,
+            supports_streaming: true,
+            can_reason: true,
+            family: Some("gpt-5.1-codex".into()),
+            ..Default::default()
+        },
+        ModelInfo {
+            id: "gpt-5.1-codex-mini".into(),
+            name: "GPT-5.1 Codex Mini (Copilot)".into(),
+            context_window: 128_000,
+            max_output_tokens: 128_000,
+            supports_tools: true,
+            supports_streaming: true,
+            can_reason: true,
+            status: ModelStatus::Beta,
+            family: Some("gpt-5.1-codex".into()),
+            ..Default::default()
+        },
+        ModelInfo {
+            id: "gpt-5.1-codex-max".into(),
+            name: "GPT-5.1 Codex Max (Copilot)".into(),
+            context_window: 128_000,
+            max_output_tokens: 128_000,
+            supports_tools: true,
+            supports_streaming: true,
+            can_reason: true,
+            supports_vision: true,
+            supports_attachments: true,
+            family: Some("gpt-5.1-codex".into()),
+            ..Default::default()
+        },
+        ModelInfo {
+            id: "gpt-5.2".into(),
+            name: "GPT-5.2 (Copilot)".into(),
+            context_window: 128_000,
+            max_output_tokens: 64_000,
+            supports_tools: true,
+            supports_streaming: true,
+            can_reason: true,
+            supports_vision: true,
+            supports_attachments: true,
+            family: Some("gpt-5.2".into()),
+            ..Default::default()
+        },
+        ModelInfo {
+            id: "gpt-5.2-codex".into(),
+            name: "GPT-5.2 Codex (Copilot)".into(),
+            context_window: 272_000,
+            max_output_tokens: 128_000,
+            supports_tools: true,
+            supports_streaming: true,
+            can_reason: true,
+            family: Some("gpt-5.2-codex".into()),
+            ..Default::default()
+        },
+        ModelInfo {
+            id: "gpt-5.3-codex".into(),
+            name: "GPT-5.3 Codex (Copilot)".into(),
+            context_window: 272_000,
+            max_output_tokens: 128_000,
+            supports_tools: true,
+            supports_streaming: true,
+            can_reason: true,
+            family: Some("gpt-5.3-codex".into()),
             ..Default::default()
         },
         // ─── Gemini models ─────────────────────────────────────────
-        ModelInfo {
-            id: "gemini-2.0-flash-001".into(),
-            name: "Gemini 2.0 Flash (Copilot)".into(),
-            context_window: 1_000_000,
-            max_output_tokens: 8_192,
-            supports_tools: true,
-            supports_streaming: true,
-            input_price_per_mtok: 0.0,
-            output_price_per_mtok: 0.0,
-            supports_vision: true,
-            family: Some("gemini-2.0".into()),
-            ..Default::default()
-        },
         ModelInfo {
             id: "gemini-2.5-pro".into(),
             name: "Gemini 2.5 Pro (Copilot)".into(),
@@ -188,37 +294,63 @@ fn extra_models() -> Vec<ModelInfo> {
             max_output_tokens: 64_000,
             supports_tools: true,
             supports_streaming: true,
-            input_price_per_mtok: 0.0,
-            output_price_per_mtok: 0.0,
             supports_vision: true,
+            supports_attachments: true,
             family: Some("gemini-2.5".into()),
             ..Default::default()
         },
-        // ─── GPT (not always returned by /models) ──────────────────
         ModelInfo {
-            id: "gpt-4".into(),
-            name: "GPT-4 (Copilot)".into(),
-            context_window: 32_768,
-            max_output_tokens: 4_096,
+            id: "gemini-3-flash-preview".into(),
+            name: "Gemini 3 Flash (Copilot)".into(),
+            context_window: 128_000,
+            max_output_tokens: 64_000,
             supports_tools: true,
             supports_streaming: true,
-            input_price_per_mtok: 0.0,
-            output_price_per_mtok: 0.0,
+            can_reason: true,
             supports_vision: true,
-            family: Some("gpt-4".into()),
+            supports_attachments: true,
+            status: ModelStatus::Beta,
+            family: Some("gemini-3".into()),
             ..Default::default()
         },
         ModelInfo {
-            id: "gpt-4.1".into(),
-            name: "GPT-4.1 (Copilot)".into(),
+            id: "gemini-3-pro-preview".into(),
+            name: "Gemini 3 Pro (Copilot)".into(),
             context_window: 128_000,
-            max_output_tokens: 16_384,
+            max_output_tokens: 64_000,
             supports_tools: true,
             supports_streaming: true,
-            input_price_per_mtok: 0.0,
-            output_price_per_mtok: 0.0,
+            can_reason: true,
             supports_vision: true,
-            family: Some("gpt-4.1".into()),
+            supports_attachments: true,
+            status: ModelStatus::Beta,
+            family: Some("gemini-3".into()),
+            ..Default::default()
+        },
+        ModelInfo {
+            id: "gemini-3.1-pro-preview".into(),
+            name: "Gemini 3.1 Pro (Copilot)".into(),
+            context_window: 128_000,
+            max_output_tokens: 64_000,
+            supports_tools: true,
+            supports_streaming: true,
+            can_reason: true,
+            supports_vision: true,
+            supports_attachments: true,
+            status: ModelStatus::Beta,
+            family: Some("gemini-3.1".into()),
+            ..Default::default()
+        },
+        // ─── Grok models ───────────────────────────────────────────
+        ModelInfo {
+            id: "grok-code-fast-1".into(),
+            name: "Grok Code Fast 1 (Copilot)".into(),
+            context_window: 128_000,
+            max_output_tokens: 64_000,
+            supports_tools: true,
+            supports_streaming: true,
+            can_reason: true,
+            family: Some("grok".into()),
             ..Default::default()
         },
     ]
@@ -275,7 +407,10 @@ impl GithubCopilotProvider {
                 "Editor-Version",
                 format!("openkoi/{}", env!("CARGO_PKG_VERSION")),
             )
-            .header("Editor-Plugin-Version", format!("openkoi/{}", env!("CARGO_PKG_VERSION")))
+            .header(
+                "Editor-Plugin-Version",
+                format!("openkoi/{}", env!("CARGO_PKG_VERSION")),
+            )
             .timeout(std::time::Duration::from_secs(10))
             .send()
             .await
@@ -324,10 +459,7 @@ impl GithubCopilotProvider {
                 + 25 * 60
         });
 
-        tracing::info!(
-            "Copilot session token obtained (expires_at={})",
-            expires_at
-        );
+        tracing::info!("Copilot session token obtained (expires_at={})", expires_at);
 
         let session = CopilotSessionToken {
             token: token.clone(),
@@ -347,10 +479,7 @@ impl GithubCopilotProvider {
             "Authorization",
             format!("Bearer {bearer_token}").parse().unwrap(),
         );
-        headers.insert(
-            "User-Agent",
-            format!("openkoi/{version}").parse().unwrap(),
-        );
+        headers.insert("User-Agent", format!("openkoi/{version}").parse().unwrap());
         headers.insert(
             "Editor-Version",
             format!("openkoi/{version}").parse().unwrap(),
@@ -359,16 +488,10 @@ impl GithubCopilotProvider {
             "Editor-Plugin-Version",
             format!("openkoi/{version}").parse().unwrap(),
         );
-        headers.insert(
-            "Copilot-Integration-Id",
-            "openkoi".parse().unwrap(),
-        );
-        headers.insert(
-            "Openai-Organization",
-            "github-copilot".parse().unwrap(),
-        );
+        headers.insert("Copilot-Integration-Id", "vscode-chat".parse().unwrap());
         headers.insert("Openai-Intent", "conversation-edits".parse().unwrap());
         headers.insert("x-initiator", "user".parse().unwrap());
+        headers.insert("x-github-api-version", "2025-10-01".parse().unwrap());
 
         headers
     }
@@ -610,8 +733,7 @@ impl ModelProvider for GithubCopilotProvider {
         // with our hardcoded extra_models() list (Claude, Gemini, reasoning).
         // Deduplication is by model ID — probed models take priority.
         let mut models = self.probed_models.clone().unwrap_or_default();
-        let seen: std::collections::HashSet<String> =
-            models.iter().map(|m| m.id.clone()).collect();
+        let seen: std::collections::HashSet<String> = models.iter().map(|m| m.id.clone()).collect();
         for extra in extra_models() {
             if !seen.contains(&extra.id) {
                 models.push(extra);
@@ -828,7 +950,7 @@ pub async fn github_device_code_flow() -> anyhow::Result<AuthInfo> {
     let resp = client
         .post("https://github.com/login/device/code")
         .header("Accept", "application/json")
-        .form(&[("client_id", GITHUB_CLIENT_ID), ("scope", "read:user")])
+        .form(&[("client_id", GITHUB_CLIENT_ID), ("scope", "")])
         .send()
         .await
         .map_err(|e| {
