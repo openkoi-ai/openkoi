@@ -7,27 +7,46 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-openkoi.ai-8B5CF6)](https://openkoi.ai)
 
-A self-iterating AI agent system. Single binary, local-first, model-agnostic.
+**Stop babysitting your AI. OpenKoi iterates until the code is right.**
 
-OpenKoi follows a **Plan-Execute-Evaluate-Refine** cycle — iterating on its own output until results meet your quality standards. It ships as a single static binary with zero runtime dependencies.
+AI coding tools generate a first draft and leave you to fix it. You review, correct, re-prompt — and become the AI's QA department. OpenKoi is different. It follows a **Plan-Execute-Evaluate-Refine** loop, iterating on its own output until results meet your quality standards. The agent is its own reviewer.
+
+Ships as a single static binary. Zero runtime dependencies. Works with any model.
 
 ![](./peer-loop.svg)
 
-## Quick Start
+## Three Steps
 
 ```bash
-# Install via Cargo
+# 1. Install
 cargo install openkoi
-
-# Or use the shell installer
+# or
 curl -fsSL https://openkoi.ai/install.sh | sh
-```
 
-```bash
+# 2. Run — OpenKoi finds your API keys automatically
 openkoi "Refactor the auth module to use JWT tokens"
+
+# 3. Ship — it iterates until the code passes its own review
+#    [PLAN] Analyzing src/auth/ — 4 files, 312 lines
+#    [EXEC] Rewriting token.rs, middleware.rs, handlers.rs
+#    [EVAL] correctness=9.2 safety=9.5 style=8.8
+#    [REFN] Style below 9.0 — tightening error types
+#    [EVAL] correctness=9.4 safety=9.5 style=9.3
+#    ✓ Done. 3 iterations. 4 files changed.
 ```
 
-OpenKoi detects your API keys from the environment, picks the best available model, and starts working. No config file needed.
+No config file needed. No setup wizard. OpenKoi detects your API keys from environment variables, existing CLI tools, and local model servers — and picks the best available model.
+
+## What Changes
+
+| Before OpenKoi | With OpenKoi |
+|----------------|--------------|
+| You manually review every AI output | The agent evaluates its own work against rubrics |
+| You re-prompt corrections 3–5 times | Automatic iteration, stops when quality threshold is met |
+| Learnings vanish between sessions | Patterns persist locally; skills improve over time |
+| Locked to one provider | Switch providers with a flag; different models per role |
+| Data on someone else's cloud | Everything stays on your machine |
+| 500ms startup, 100MB memory | <10ms startup, ~5MB idle, ~20MB binary |
 
 ## Features
 
@@ -342,7 +361,15 @@ openkoi status   # config at /tmp/openkoi-test/, data at /tmp/openkoi-test/data/
 | `OPENKOI_MODEL` | Default model in `provider/model` format. |
 | `OPENKOI_LOG_LEVEL` | Log verbosity: `error`, `warn`, `info`, `debug`, `trace`. |
 
-## Documentation
+## Install
+
+```bash
+# Via Cargo
+cargo install openkoi
+
+# Via shell installer
+curl -fsSL https://openkoi.ai/install.sh | sh
+```
 
 Full documentation at [openkoi.ai](https://openkoi.ai).
 

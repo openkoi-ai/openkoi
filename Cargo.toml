@@ -2,7 +2,7 @@
 name = "openkoi"
 version = "2026.2.24"
 edition = "2021"
-description = "Self-iterating AI agent system"
+description = "AI coding agent that reviews its own work. Plan-Execute-Evaluate-Refine loop. Single binary, any model."
 license = "MIT"
 repository = "https://github.com/openkoi-ai/openkoi"
 homepage = "https://openkoi.ai"
