@@ -251,205 +251,24 @@ async fn try_dispatch_integration(
     integrations: Option<&IntegrationRegistry>,
 ) -> Option<String> {
     let registry = integrations?;
-
-    // Parse the tool name: "{integration_id}_{action}"
-    // We try to find the longest matching integration ID prefix.
     let tool_name = &tc.name;
 
-    // Check known integration tool suffixes
-    let suffix = INTEGRATION_TOOL_SUFFIXES
-        .iter()
-        .find(|s| tool_name.ends_with(*s))?;
+    // Parse the tool name: find which integration ID is a prefix and has a known suffix
+    for suffix in INTEGRATION_TOOL_SUFFIXES {
+        if tool_name.ends_with(suffix) {
+            let integration_id = &tool_name[..tool_name.len() - suffix.len()];
+            if let Some(integration) = registry.get(integration_id) {
+                // Action name is the suffix without the leading underscore
+                let action = &suffix[1..];
+                match integration.call(action, tc.arguments.clone()).await {
+                    Ok(result) => return Some(result),
+                    Err(e) => return Some(format!("Error: {e}")),
+                }
+            }
+        }
+    }
 
-    let integration_id = &tool_name[..tool_name.len() - suffix.len()];
-    let integration = registry.get(integration_id)?;
-
-    let result = match *suffix {
-        "_send" => {
-            let target = tc
-                .arguments
-                .get("target")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let message = tc
-                .arguments
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if let Some(msg_adapter) = integration.messaging() {
-                match msg_adapter.send(target, message).await {
-                    Ok(id) => format!("Message sent successfully (id: {id})"),
-                    Err(e) => format!("Error sending message: {e}"),
-                }
-            } else {
-                format!("Error: {integration_id} does not support messaging")
-            }
-        }
-        "_read" => {
-            let channel = tc
-                .arguments
-                .get("channel")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let limit = tc
-                .arguments
-                .get("limit")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(20) as u32;
-            if let Some(msg_adapter) = integration.messaging() {
-                match msg_adapter.history(channel, limit).await {
-                    Ok(messages) => {
-                        let formatted: Vec<String> = messages
-                            .iter()
-                            .map(|m| format!("[{}] {}: {}", m.timestamp, m.sender, m.content))
-                            .collect();
-                        if formatted.is_empty() {
-                            "No messages found.".to_string()
-                        } else {
-                            formatted.join("\n")
-                        }
-                    }
-                    Err(e) => format!("Error reading messages: {e}"),
-                }
-            } else {
-                format!("Error: {integration_id} does not support messaging")
-            }
-        }
-        "_read_doc" => {
-            let doc_id = tc
-                .arguments
-                .get("doc_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if let Some(doc_adapter) = integration.document() {
-                match doc_adapter.read(doc_id).await {
-                    Ok(doc) => {
-                        format!("# {}\n\n{}", doc.title, doc.content)
-                    }
-                    Err(e) => format!("Error reading document: {e}"),
-                }
-            } else {
-                format!("Error: {integration_id} does not support documents")
-            }
-        }
-        "_write_doc" => {
-            let doc_id = tc
-                .arguments
-                .get("doc_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let content = tc
-                .arguments
-                .get("content")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if let Some(doc_adapter) = integration.document() {
-                match doc_adapter.write(doc_id, content).await {
-                    Ok(()) => "Document updated successfully.".to_string(),
-                    Err(e) => format!("Error writing document: {e}"),
-                }
-            } else {
-                format!("Error: {integration_id} does not support documents")
-            }
-        }
-        "_search" => {
-            let query = tc
-                .arguments
-                .get("query")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            // Try messaging search first, then document search
-            if let Some(msg_adapter) = integration.messaging() {
-                match msg_adapter.search(query).await {
-                    Ok(messages) => {
-                        let formatted: Vec<String> = messages
-                            .iter()
-                            .map(|m| format!("[{}] {}: {}", m.channel, m.sender, m.content))
-                            .collect();
-                        if formatted.is_empty() {
-                            "No messages found.".to_string()
-                        } else {
-                            formatted.join("\n")
-                        }
-                    }
-                    Err(e) => format!("Search error: {e}"),
-                }
-            } else if let Some(doc_adapter) = integration.document() {
-                match doc_adapter.search(query).await {
-                    Ok(refs) => {
-                        let formatted: Vec<String> = refs
-                            .iter()
-                            .map(|r| {
-                                format!(
-                                    "- {} (id: {}{})",
-                                    r.title,
-                                    r.id,
-                                    r.url
-                                        .as_ref()
-                                        .map(|u| format!(", url: {u}"))
-                                        .unwrap_or_default()
-                                )
-                            })
-                            .collect();
-                        if formatted.is_empty() {
-                            "No documents found.".to_string()
-                        } else {
-                            formatted.join("\n")
-                        }
-                    }
-                    Err(e) => format!("Search error: {e}"),
-                }
-            } else {
-                format!("Error: {integration_id} does not support search")
-            }
-        }
-        "_list_docs" => {
-            let folder = tc.arguments.get("folder").and_then(|v| v.as_str());
-            if let Some(doc_adapter) = integration.document() {
-                match doc_adapter.list(folder).await {
-                    Ok(refs) => {
-                        let formatted: Vec<String> = refs
-                            .iter()
-                            .map(|r| format!("- {} (id: {})", r.title, r.id))
-                            .collect();
-                        if formatted.is_empty() {
-                            "No documents found.".to_string()
-                        } else {
-                            formatted.join("\n")
-                        }
-                    }
-                    Err(e) => format!("Error listing documents: {e}"),
-                }
-            } else {
-                format!("Error: {integration_id} does not support documents")
-            }
-        }
-        "_create_doc" => {
-            let title = tc
-                .arguments
-                .get("title")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Untitled");
-            let content = tc
-                .arguments
-                .get("content")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if let Some(doc_adapter) = integration.document() {
-                match doc_adapter.create(title, content).await {
-                    Ok(id) => format!("Document created successfully (id: {id})"),
-                    Err(e) => format!("Error creating document: {e}"),
-                }
-            } else {
-                format!("Error: {integration_id} does not support documents")
-            }
-        }
-        _ => {
-            format!("Error: Unknown integration action '{suffix}' for {integration_id}")
-        }
-    };
-
-    Some(result)
+    None
 }
 
 /// Dispatch a tool call to an MCP server.

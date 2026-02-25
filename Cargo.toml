@@ -1,6 +1,6 @@
 [package]
 name = "openkoi"
-version = "2026.2.24"
+version = "2026.2.25"
 edition = "2021"
 description = "AI coding agent that reviews its own work. Plan-Execute-Evaluate-Refine loop. Single binary, any model."
 license = "MIT"
