@@ -1,9 +1,10 @@
 // src/integrations/types.rs — Integration adapter traits
 
 use async_trait::async_trait;
+use serde::Serialize;
 
 /// An incoming message from a messaging integration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct IncomingMessage {
     pub id: String,
     pub channel: String,
@@ -15,7 +16,7 @@ pub struct IncomingMessage {
 }
 
 /// A rich message for structured delivery (task results, progress updates).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RichMessage {
     /// Plain-text fallback (always required)
     pub text: String,
@@ -67,7 +68,7 @@ impl RichMessage {
 }
 
 /// A document reference from a document integration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct DocumentRef {
     pub id: String,
     pub title: String,
@@ -75,7 +76,7 @@ pub struct DocumentRef {
 }
 
 /// A full document.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Document {
     pub id: String,
     pub title: String,
@@ -107,10 +108,98 @@ pub trait DocumentAdapter: Send + Sync {
     async fn list(&self, folder: Option<&str>) -> anyhow::Result<Vec<DocumentRef>>;
 }
 
-/// An integration that can provide messaging, document, or both adapters.
+#[async_trait]
 pub trait Integration: Send + Sync {
     fn id(&self) -> &str;
     fn name(&self) -> &str;
     fn messaging(&self) -> Option<&dyn MessagingAdapter>;
     fn document(&self) -> Option<&dyn DocumentAdapter>;
+
+    /// Dispatch a generic tool call to this integration.
+    async fn call(&self, action: &str, args: serde_json::Value) -> anyhow::Result<String> {
+        match action {
+            "send" => {
+                let messaging = self
+                    .messaging()
+                    .ok_or_else(|| anyhow::anyhow!("Messaging not supported"))?;
+                let target = args["target"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing target"))?;
+                let message = args["message"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing message"))?;
+                messaging.send(target, message).await
+            }
+            "read" => {
+                let messaging = self
+                    .messaging()
+                    .ok_or_else(|| anyhow::anyhow!("Messaging not supported"))?;
+                let channel = args["channel"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing channel"))?;
+                let limit = args["limit"].as_u64().unwrap_or(20) as u32;
+                let msgs = messaging.history(channel, limit).await?;
+                Ok(serde_json::to_string_pretty(&msgs)?)
+            }
+            "search" => {
+                let query = args["query"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing query"))?;
+                if let Some(m) = self.messaging() {
+                    let msgs = m.search(query).await?;
+                    if !msgs.is_empty() {
+                        return Ok(serde_json::to_string_pretty(&msgs)?);
+                    }
+                }
+                if let Some(d) = self.document() {
+                    let docs = d.search(query).await?;
+                    return Ok(serde_json::to_string_pretty(&docs)?);
+                }
+                anyhow::bail!("Search not supported or no results found")
+            }
+            "read_doc" => {
+                let document = self
+                    .document()
+                    .ok_or_else(|| anyhow::anyhow!("Document storage not supported"))?;
+                let doc_id = args["doc_id"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing doc_id"))?;
+                let doc = document.read(doc_id).await?;
+                Ok(doc.content)
+            }
+            "write_doc" => {
+                let document = self
+                    .document()
+                    .ok_or_else(|| anyhow::anyhow!("Document storage not supported"))?;
+                let doc_id = args["doc_id"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing doc_id"))?;
+                let content = args["content"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing content"))?;
+                document.write(doc_id, content).await?;
+                Ok("Document updated".into())
+            }
+            "create_doc" => {
+                let document = self
+                    .document()
+                    .ok_or_else(|| anyhow::anyhow!("Document storage not supported"))?;
+                let title = args["title"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing title"))?;
+                let content = args["content"].as_str().unwrap_or_default();
+                let doc_id = document.create(title, content).await?;
+                Ok(format!("Document created with ID: {doc_id}"))
+            }
+            "list_docs" => {
+                let document = self
+                    .document()
+                    .ok_or_else(|| anyhow::anyhow!("Document storage not supported"))?;
+                let folder = args["folder"].as_str();
+                let docs = document.list(folder).await?;
+                Ok(serde_json::to_string_pretty(&docs)?)
+            }
+            _ => anyhow::bail!("Unknown action: {action}"),
+        }
+    }
 }

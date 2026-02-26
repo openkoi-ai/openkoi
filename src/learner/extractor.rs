@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use super::types::*;
 use crate::core::types::IterationCycle;
-use crate::memory::store::Store;
+use crate::memory::StoreHandle;
 use crate::provider::{ChatRequest, Message, ModelProvider};
 
 /// Extracts reusable learnings from completed task iterations.
@@ -19,7 +19,11 @@ impl LearningExtractor {
     }
 
     /// Extract learnings from a completed iteration run.
-    pub async fn extract(&self, cycles: &[IterationCycle], store: Option<&Store>) -> Vec<Learning> {
+    pub async fn extract(
+        &self,
+        cycles: &[IterationCycle],
+        store: Option<&StoreHandle>,
+    ) -> Vec<Learning> {
         let mut learnings = Vec::new();
 
         // 1. Score progression analysis (zero tokens)
@@ -37,7 +41,7 @@ impl LearningExtractor {
 
         // 4. Deduplicate against existing learnings
         if let Some(store) = store {
-            super::dedup::deduplicate(&mut learnings, store);
+            super::dedup::deduplicate(&mut learnings, store).await;
         }
 
         learnings

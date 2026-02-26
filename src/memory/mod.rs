@@ -6,6 +6,9 @@ pub mod embeddings;
 pub mod recall;
 pub mod schema;
 pub mod store;
+pub mod store_server;
+
+pub use store_server::StoreHandle;
 
 use rusqlite::Connection;
 use std::path::Path;

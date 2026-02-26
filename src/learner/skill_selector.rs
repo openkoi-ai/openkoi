@@ -1,7 +1,7 @@
 // src/learner/skill_selector.rs — Multi-signal skill ranking
 
 use super::types::*;
-use crate::memory::store::Store;
+use crate::memory::StoreHandle;
 use crate::skills::eligibility::is_eligible;
 use crate::skills::types::{SkillEntry, SkillKind};
 
@@ -22,12 +22,12 @@ impl SkillSelector {
     /// Select and rank skills for a task.
     /// Takes the task description, optional category, all available skills,
     /// and optional store for historical effectiveness queries.
-    pub fn select(
+    pub async fn select(
         &self,
         task_description: &str,
         task_category: Option<&str>,
         all_skills: &[SkillEntry],
-        store: Option<&Store>,
+        store: Option<&StoreHandle>,
     ) -> Vec<RankedSkill> {
         let eligible: Vec<&SkillEntry> = all_skills
             .iter()
@@ -42,7 +42,10 @@ impl SkillSelector {
             // Signal 1: historical effectiveness for this category
             if let Some(cat) = task_category {
                 if let Some(store) = store {
-                    if let Ok(Some(eff)) = store.query_skill_effectiveness(&skill.name, cat) {
+                    if let Ok(Some(eff)) = store
+                        .query_skill_effectiveness(skill.name.clone(), cat.to_string())
+                        .await
+                    {
                         signals.push(Signal::Effectiveness {
                             category: cat.to_string(),
                             avg_score: eff.avg_score as f32,

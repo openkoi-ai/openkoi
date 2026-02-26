@@ -1,7 +1,6 @@
 // src/core/orchestrator.rs — Iteration controller
 
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::time::Instant;
 
 use super::cost::CostTracker;
@@ -16,7 +15,7 @@ use crate::integrations::registry::IntegrationRegistry;
 use crate::learner::extractor::LearningExtractor;
 use crate::learner::types::RankedSkill;
 use crate::memory::recall::HistoryRecall;
-use crate::memory::store::Store;
+use crate::memory::StoreHandle;
 use crate::plugins::mcp::McpManager;
 use crate::provider::roles::ModelRoles;
 use crate::provider::{ModelInfo, ModelProvider, ToolDef};
@@ -42,9 +41,7 @@ pub struct Orchestrator {
     executor_model_info: Option<ModelInfo>,
     evaluator_model_info: Option<ModelInfo>,
     /// Optional persistence store for recording task/cycle/finding data.
-    /// Uses `std::sync::Mutex` (not tokio) because the lock is never held across
-    /// an `.await` — all store operations are short synchronous writes.
-    store: Option<Arc<Mutex<Store>>>,
+    store: Option<StoreHandle>,
     /// Optional callback for real-time progress events.
     on_progress: Option<Box<dyn Fn(ProgressEvent) + Send>>,
 }
@@ -69,7 +66,7 @@ impl Orchestrator {
         config: IterationEngineConfig,
         safety: SafetyChecker,
         skill_registry: Arc<SkillRegistry>,
-        store: Option<Arc<Mutex<Store>>>,
+        store: Option<StoreHandle>,
     ) -> Self {
         let executor_model_id = roles.executor.model.clone();
         let evaluator_model_id = roles.evaluator.model.clone();
@@ -133,37 +130,40 @@ impl Orchestrator {
     }
 
     /// Persist a single cycle (and its findings) to the store. Non-fatal on error.
-    fn persist_cycle(&self, task_id: &str, cycle: &IterationCycle, iteration: usize) {
+    async fn persist_cycle(&self, task_id: &str, cycle: &IterationCycle, iteration: usize) {
         let Some(ref store) = self.store else { return };
-        let Ok(s) = store.lock() else { return };
 
         let cycle_id = uuid::Uuid::new_v4().to_string();
         let usage = cycle.output.as_ref().map(|o| &o.usage);
-        let _ = s.insert_cycle(
-            &cycle_id,
-            task_id,
-            iteration as i32,
-            cycle.evaluation.as_ref().map(|e| e.score as f64),
-            &cycle.decision.to_string(),
-            usage.map(|u| u.input_tokens as i64),
-            usage.map(|u| u.output_tokens as i64),
-            None, // duration_ms — not tracked per-cycle currently
-        );
+        let _ = store
+            .insert_cycle(
+                cycle_id.clone(),
+                task_id.to_string(),
+                iteration as i32,
+                cycle.evaluation.as_ref().map(|e| e.score as f64),
+                cycle.decision.to_string(),
+                usage.map(|u| u.input_tokens as i64),
+                usage.map(|u| u.output_tokens as i64),
+                None, // duration_ms
+            )
+            .await;
 
-        // Persist findings from the evaluation
+        // Persist findings
         if let Some(ref eval) = cycle.evaluation {
             for finding in &eval.findings {
                 let finding_id = uuid::Uuid::new_v4().to_string();
-                let _ = s.insert_finding(
-                    &finding_id,
-                    &cycle_id,
-                    &finding.severity.to_string(),
-                    &finding.dimension,
-                    &finding.title,
-                    Some(finding.description.as_str()),
-                    finding.location.as_deref(),
-                    finding.fix.as_deref(),
-                );
+                let _ = store
+                    .insert_finding(
+                        finding_id,
+                        cycle_id.clone(),
+                        finding.severity.to_string(),
+                        finding.dimension.clone(),
+                        finding.title.clone(),
+                        Some(finding.description.clone()),
+                        finding.location.clone(),
+                        finding.fix.clone(),
+                    )
+                    .await;
             }
         }
     }
@@ -201,9 +201,14 @@ impl Orchestrator {
         // Persist task record
         let task_id = uuid::Uuid::new_v4().to_string();
         if let Some(ref store) = self.store {
-            if let Ok(s) = store.lock() {
-                let _ = s.insert_task(&task_id, &task.description, task.category.as_deref(), None);
-            }
+            let _ = store
+                .insert_task(
+                    task_id.clone(),
+                    task.description.clone(),
+                    task.category.clone(),
+                    None,
+                )
+                .await;
         }
 
         // Emit plan ready
@@ -317,7 +322,7 @@ impl Orchestrator {
                     cycle.decision = IterationDecision::Continue;
                     cycles.push(cycle);
                     if let Some(last) = cycles.last() {
-                        self.persist_cycle(&task_id, last, i as usize);
+                        self.persist_cycle(&task_id, last, i as usize).await;
                     }
                     continue;
                 }
@@ -326,7 +331,7 @@ impl Orchestrator {
                     cycle.decision = IterationDecision::AbortBudget;
                     cycles.push(cycle);
                     if let Some(last) = cycles.last() {
-                        self.persist_cycle(&task_id, last, i as usize);
+                        self.persist_cycle(&task_id, last, i as usize).await;
                     }
                     break;
                 }
@@ -401,7 +406,7 @@ impl Orchestrator {
                 cycle.decision = abort_decision;
                 cycles.push(cycle);
                 if let Some(last) = cycles.last() {
-                    self.persist_cycle(&task_id, last, i as usize);
+                    self.persist_cycle(&task_id, last, i as usize).await;
                 }
                 break;
             }
@@ -437,7 +442,7 @@ impl Orchestrator {
             let should_continue = cycle.decision == IterationDecision::Continue;
             cycles.push(cycle);
             if let Some(last) = cycles.last() {
-                self.persist_cycle(&task_id, last, i as usize);
+                self.persist_cycle(&task_id, last, i as usize).await;
             }
 
             if !should_continue {
@@ -453,31 +458,26 @@ impl Orchestrator {
         // (Skills used are collected below when building TaskResult.)
 
         // Extract learnings from the completed iteration cycles
-        let store_guard = self.store.as_ref().and_then(|s| s.lock().ok());
-        let learnings = self
-            .extractor
-            .extract(&cycles, store_guard.as_deref())
-            .await;
-        drop(store_guard); // release lock before persisting
+        let learnings = self.extractor.extract(&cycles, self.store.as_ref()).await;
 
         let mut learnings_saved: u32 = 0;
         if !learnings.is_empty() {
             if let Some(ref store) = self.store {
-                if let Ok(s) = store.lock() {
-                    for learning in &learnings {
-                        let learning_id = uuid::Uuid::new_v4().to_string();
-                        if s.insert_learning(
-                            &learning_id,
-                            learning.learning_type.as_str(),
-                            &learning.content,
-                            learning.category.as_deref(),
+                for learning in &learnings {
+                    let learning_id = uuid::Uuid::new_v4().to_string();
+                    if store
+                        .insert_learning(
+                            learning_id,
+                            learning.learning_type.as_str().to_string(),
+                            learning.content.clone(),
+                            learning.category.clone(),
                             learning.confidence as f64,
-                            Some(&learning.source_task),
+                            Some(learning.source_task.clone()),
                         )
+                        .await
                         .is_ok()
-                        {
-                            learnings_saved += 1;
-                        }
+                    {
+                        learnings_saved += 1;
                     }
                 }
             }
@@ -502,16 +502,16 @@ impl Orchestrator {
 
         // Persist task completion
         if let Some(ref store) = self.store {
-            if let Ok(s) = store.lock() {
-                let _ = s.complete_task(
-                    &task_id,
+            let _ = store
+                .complete_task(
+                    task_id,
                     final_score,
                     iterations as i32,
-                    &best.decision.to_string(),
+                    best.decision.to_string(),
                     total_tokens as i64,
                     cost,
-                );
-            }
+                )
+                .await;
         }
 
         // Emit completion

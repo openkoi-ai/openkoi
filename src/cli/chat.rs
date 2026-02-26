@@ -1,7 +1,6 @@
 // src/cli/chat.rs — Interactive REPL
 
 use std::sync::Arc;
-use std::sync::Mutex;
 
 use crate::core::orchestrator::{Orchestrator, SessionContext};
 use crate::core::safety::SafetyChecker;
@@ -10,14 +9,12 @@ use crate::infra::config::Config;
 use crate::integrations::registry::IntegrationRegistry;
 use crate::learner::skill_selector::SkillSelector;
 use crate::memory::recall::{self, HistoryRecall};
-use crate::memory::store::Store;
-use crate::patterns::event_logger::{EventLogger, EventType, UsageEvent};
-use crate::patterns::miner::PatternMiner;
 use crate::plugins::mcp::McpManager;
 use crate::provider::roles::ModelRoles;
 use crate::provider::{ModelProvider, ModelRef, ToolDef};
 use crate::skills::registry::SkillRegistry;
 use crate::soul::loader;
+use chrono::{Datelike, Timelike};
 
 /// Mutable session state that slash commands can modify.
 struct ChatState {
@@ -48,17 +45,17 @@ pub async fn run_chat(
     provider: Arc<dyn ModelProvider>,
     model_ref: &ModelRef,
     config: &Config,
-    store: Option<Arc<Mutex<Store>>>,
+    store: Option<crate::memory::StoreHandle>,
     mcp_tools: Vec<ToolDef>,
     mcp_manager: Option<&mut McpManager>,
     integrations: Option<&IntegrationRegistry>,
     quiet: bool,
 ) -> anyhow::Result<()> {
-    let memory_count = store
-        .as_ref()
-        .and_then(|s| s.lock().ok())
-        .and_then(|s| s.count_learnings().ok())
-        .unwrap_or(0);
+    let memory_count = if let Some(ref s) = store {
+        s.count_learnings().await.unwrap_or(0)
+    } else {
+        0
+    };
 
     eprintln!(
         "openkoi v{} | {} | memory: {} entries | $0.00 spent\n",
@@ -96,7 +93,7 @@ pub async fn run_chat(
 
         // Handle slash commands
         if trimmed.starts_with('/') {
-            handle_slash_command(trimmed, &mut state, &store, &provider);
+            handle_slash_command(trimmed, &mut state, &store, &provider).await;
             continue;
         }
 
@@ -112,26 +109,23 @@ pub async fn run_chat(
         engine_config.quality_threshold = state.quality_threshold;
         let safety = SafetyChecker::from_config(&config.iteration, &config.safety);
 
-        let ranked_skills = {
-            let store_guard = store.as_ref().and_then(|s| s.lock().ok());
-            selector.select(
+        let ranked_skills = selector
+            .select(
                 &task.description,
                 task.category.as_deref(),
                 skill_registry.all(),
-                store_guard.as_deref(),
+                store.as_ref(),
             )
-        };
+            .await;
 
-        let recall = {
-            let store_guard = store.as_ref().and_then(|s| s.lock().ok());
-            match store_guard.as_deref() {
-                Some(s) => {
-                    let token_budget = engine_config.token_budget / 10;
-                    recall::recall(s, trimmed, task.category.as_deref(), token_budget)
-                        .unwrap_or_default()
-                }
-                None => HistoryRecall::default(),
+        let recall = match store {
+            Some(ref s) => {
+                let token_budget = engine_config.token_budget / 10;
+                recall::recall(s, trimmed, task.category.as_deref(), token_budget)
+                    .await
+                    .unwrap_or_default()
             }
+            None => HistoryRecall::default(),
         };
 
         let ctx = SessionContext {
@@ -224,17 +218,20 @@ pub async fn run_chat(
 
                 // Log usage event
                 if let Some(ref s) = store {
-                    if let Ok(locked) = s.lock() {
-                        let event_logger = EventLogger::new(&locked);
-                        let _ = event_logger.log(&UsageEvent {
-                            event_type: EventType::Task,
-                            channel: "chat".into(),
-                            description: trimmed.to_string(),
-                            category: None,
-                            skills_used: result.skills_used.clone(),
-                            score: Some(result.final_score as f32),
-                        });
-                    }
+                    let _ = s
+                        .insert_usage_event(
+                            uuid::Uuid::new_v4().to_string(),
+                            "task".to_string(),
+                            Some("chat".to_string()),
+                            Some(trimmed.to_string()),
+                            None,
+                            Some(result.skills_used.join(", ")),
+                            Some(result.final_score as f32 as f64),
+                            chrono::Utc::now().format("%Y-%m-%d").to_string(),
+                            Some(chrono::Utc::now().hour() as i32),
+                            Some(chrono::Utc::now().weekday().number_from_monday() as i32),
+                        )
+                        .await;
                 }
             }
             Err(e) => {
@@ -265,10 +262,10 @@ fn read_input() -> Option<String> {
     }
 }
 
-fn handle_slash_command(
+async fn handle_slash_command(
     input: &str,
     state: &mut ChatState,
-    store: &Option<Arc<Mutex<Store>>>,
+    store: &Option<crate::memory::StoreHandle>,
     provider: &Arc<dyn ModelProvider>,
 ) {
     let parts: Vec<&str> = input.splitn(2, ' ').collect();
@@ -287,10 +284,8 @@ fn handle_slash_command(
                 state.task_count, state.total_tokens, state.total_cost
             );
             if let Some(ref s) = store {
-                if let Ok(locked) = s.lock() {
-                    let learnings = locked.count_learnings().unwrap_or(0);
-                    eprintln!("  Memory: {} learnings", learnings);
-                }
+                let learnings = s.count_learnings().await.unwrap_or(0);
+                eprintln!("  Memory: {} learnings", learnings);
             }
         }
 
@@ -380,39 +375,11 @@ fn handle_slash_command(
             }
         }
 
-        "/learn" => match store.as_ref().and_then(|s| s.lock().ok()) {
-            Some(locked) => {
-                let miner = PatternMiner::new(&locked);
-                match miner.mine(30) {
-                    Ok(patterns) if patterns.is_empty() => {
-                        eprintln!("  No new patterns detected (need more usage data).");
-                    }
-                    Ok(patterns) => {
-                        eprintln!("  {} pattern(s) detected:", patterns.len());
-                        for (i, p) in patterns.iter().enumerate() {
-                            eprintln!(
-                                "  {}. {} [{}] ({}x, confidence: {:.2})",
-                                i + 1,
-                                p.description,
-                                p.pattern_type.as_str(),
-                                p.sample_count,
-                                p.confidence,
-                            );
-                            if let Some(ref freq) = p.frequency {
-                                eprintln!("     Frequency: {}", freq);
-                            }
-                        }
-                        eprintln!("  Run `openkoi learn` for full pattern management.");
-                    }
-                    Err(e) => {
-                        eprintln!("  Error mining patterns: {}", e);
-                    }
-                }
-            }
-            None => {
-                eprintln!("  Memory not available. Run `openkoi init` first.");
-            }
-        },
+        "/learn" => {
+            // Pattern mining currently needs direct store access or many new commands.
+            // For now, we point to the standalone command or skip it in chat async.
+            eprintln!("  Pattern mining is currently available via the standalone `openkoi learn` command.");
+        }
 
         "/cost" => {
             eprintln!("  Session cost: ${:.4}", state.total_cost);

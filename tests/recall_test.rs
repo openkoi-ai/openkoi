@@ -3,10 +3,12 @@
 use openkoi::memory::recall::{recall, HistoryRecall};
 use openkoi::memory::schema;
 use openkoi::memory::store::Store;
+use openkoi::memory::StoreHandle;
 use rusqlite::Connection;
 
 /// Create an in-memory store with schema and seed data.
-fn seeded_store() -> Store {
+/// Returns a StoreHandle and the JoinHandle for the store server.
+async fn seeded_store() -> (StoreHandle, tokio::task::JoinHandle<()>) {
     let conn = Connection::open_in_memory().unwrap();
     schema::run_migrations(&conn).unwrap();
     let store = Store::new(conn);
@@ -63,14 +65,16 @@ fn seeded_store() -> Store {
         .upsert_skill_effectiveness("sql-safety", "sql", 0.88)
         .unwrap();
 
-    store
+    openkoi::memory::store_server::spawn_store_server(store)
 }
 
-#[test]
-fn test_recall_returns_anti_patterns_first() {
-    let store = seeded_store();
+#[tokio::test]
+async fn test_recall_returns_anti_patterns_first() {
+    let (store, _jh) = seeded_store().await;
 
-    let result = recall(&store, "Write a SQL query", Some("sql"), 10000).unwrap();
+    let result = recall(&store, "Write a SQL query", Some("sql"), 10000)
+        .await
+        .unwrap();
 
     // Anti-patterns should be prioritized
     assert!(
@@ -80,11 +84,13 @@ fn test_recall_returns_anti_patterns_first() {
     assert!(result.tokens_used > 0);
 }
 
-#[test]
-fn test_recall_includes_skill_recommendations() {
-    let store = seeded_store();
+#[tokio::test]
+async fn test_recall_includes_skill_recommendations() {
+    let (store, _jh) = seeded_store().await;
 
-    let result = recall(&store, "Review Rust code", Some("rust"), 10000).unwrap();
+    let result = recall(&store, "Review Rust code", Some("rust"), 10000)
+        .await
+        .unwrap();
 
     // Should recommend skills effective for the "rust" category
     assert!(
@@ -96,11 +102,11 @@ fn test_recall_includes_skill_recommendations() {
         .contains(&"code-review".to_string()));
 }
 
-#[test]
-fn test_recall_includes_learnings() {
-    let store = seeded_store();
+#[tokio::test]
+async fn test_recall_includes_learnings() {
+    let (store, _jh) = seeded_store().await;
 
-    let result = recall(&store, "Write code", None, 10000).unwrap();
+    let result = recall(&store, "Write code", None, 10000).await.unwrap();
 
     // Should include heuristic learnings
     assert!(
@@ -109,12 +115,12 @@ fn test_recall_includes_learnings() {
     );
 }
 
-#[test]
-fn test_recall_respects_token_budget() {
-    let store = seeded_store();
+#[tokio::test]
+async fn test_recall_respects_token_budget() {
+    let (store, _jh) = seeded_store().await;
 
     // Very small budget — should limit what's returned
-    let result = recall(&store, "Test", None, 5).unwrap();
+    let result = recall(&store, "Test", None, 5).await.unwrap();
 
     // With a 5-token budget, we shouldn't be able to fit much
     assert!(
@@ -124,24 +130,25 @@ fn test_recall_respects_token_budget() {
     );
 }
 
-#[test]
-fn test_recall_with_zero_budget() {
-    let store = seeded_store();
+#[tokio::test]
+async fn test_recall_with_zero_budget() {
+    let (store, _jh) = seeded_store().await;
 
-    let result = recall(&store, "Test", None, 0).unwrap();
+    let result = recall(&store, "Test", None, 0).await.unwrap();
 
     assert_eq!(result.tokens_used, 0);
     assert!(result.anti_patterns.is_empty());
     assert!(result.learnings.is_empty());
 }
 
-#[test]
-fn test_recall_empty_store() {
+#[tokio::test]
+async fn test_recall_empty_store() {
     let conn = Connection::open_in_memory().unwrap();
     schema::run_migrations(&conn).unwrap();
-    let store = Store::new(conn);
+    let store_raw = Store::new(conn);
+    let (store, _jh) = openkoi::memory::store_server::spawn_store_server(store_raw);
 
-    let result = recall(&store, "Test", Some("code"), 10000).unwrap();
+    let result = recall(&store, "Test", Some("code"), 10000).await.unwrap();
 
     assert_eq!(result.tokens_used, 0);
     assert!(result.anti_patterns.is_empty());
@@ -160,12 +167,12 @@ fn test_recall_default() {
     assert_eq!(default_recall.tokens_used, 0);
 }
 
-#[test]
-fn test_recall_without_category() {
-    let store = seeded_store();
+#[tokio::test]
+async fn test_recall_without_category() {
+    let (store, _jh) = seeded_store().await;
 
     // When no category is provided, skill recommendations are skipped
-    let result = recall(&store, "General task", None, 10000).unwrap();
+    let result = recall(&store, "General task", None, 10000).await.unwrap();
 
     assert!(
         result.skill_recommendations.is_empty(),

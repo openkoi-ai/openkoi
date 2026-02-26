@@ -14,19 +14,21 @@ use openkoi::memory::embeddings::{cosine_similarity, normalize, text_similarity}
 use openkoi::memory::recall::{recall, HistoryRecall};
 use openkoi::memory::schema::run_migrations;
 use openkoi::memory::store::Store;
+use openkoi::memory::StoreHandle;
 use openkoi::provider::Message;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 /// Create an in-memory store with schema applied.
-fn setup_store() -> Store {
+fn setup_store() -> (StoreHandle, tokio::task::JoinHandle<()>) {
     let conn = Connection::open_in_memory().expect("open in-memory db");
     run_migrations(&conn).expect("run migrations");
-    Store::new(conn)
+    let store = Store::new(conn);
+    openkoi::memory::store_server::spawn_store_server(store)
 }
 
-/// Populate a store with N learnings for recall benchmarks.
-fn populate_store(store: &Store, n: usize) {
+/// Populate a store handle with N learnings.
+fn populate_handle(rt: &tokio::runtime::Runtime, handle: &StoreHandle, n: usize) {
     for i in 0..n {
         let id = format!("learn-{i}");
         let ltype = if i % 5 == 0 {
@@ -38,16 +40,15 @@ fn populate_store(store: &Store, n: usize) {
             "Learning #{i}: Always check edge cases for module {}",
             i % 20
         );
-        store
-            .insert_learning(
-                &id,
-                ltype,
-                &content,
-                Some("coding"),
-                0.5 + (i as f64 % 50.0) / 100.0,
-                None,
-            )
-            .expect("insert learning");
+        rt.block_on(handle.insert_learning(
+            id,
+            ltype.to_string(),
+            content,
+            Some("coding".to_string()),
+            0.5 + (i as f64 % 50.0) / 100.0,
+            None,
+        ))
+        .expect("insert learning");
     }
 }
 
@@ -88,39 +89,49 @@ fn bench_startup(c: &mut Criterion) {
 // ─── Benchmark: Recall latency ──────────────────────────────────────────────
 
 fn bench_recall(c: &mut Criterion) {
-    let store = setup_store();
-    populate_store(&store, 200);
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let _guard = rt.enter();
+    let (store, _jh) = setup_store();
+    populate_handle(&rt, &store, 200);
 
     let mut group = c.benchmark_group("recall");
 
     group.bench_function("recall_budget_2000", |b| {
         b.iter(|| {
-            let _result: HistoryRecall = recall(
-                black_box(&store),
-                "Fix a type error in the parser",
-                Some("coding"),
-                2000,
-            )
-            .expect("recall");
+            let _result: HistoryRecall = rt
+                .block_on(recall(
+                    black_box(&store),
+                    "Fix a type error in the parser",
+                    Some("coding"),
+                    2000,
+                ))
+                .expect("recall");
         })
     });
 
     group.bench_function("recall_budget_500", |b| {
         b.iter(|| {
-            let _result: HistoryRecall = recall(
-                black_box(&store),
-                "Add logging to the server",
-                Some("coding"),
-                500,
-            )
-            .expect("recall");
+            let _result: HistoryRecall = rt
+                .block_on(recall(
+                    black_box(&store),
+                    "Add logging to the server",
+                    Some("coding"),
+                    500,
+                ))
+                .expect("recall");
         })
     });
 
     group.bench_function("recall_no_category", |b| {
         b.iter(|| {
-            let _result: HistoryRecall =
-                recall(black_box(&store), "General task description", None, 2000).expect("recall");
+            let _result: HistoryRecall = rt
+                .block_on(recall(
+                    black_box(&store),
+                    "General task description",
+                    None,
+                    2000,
+                ))
+                .expect("recall");
         })
     });
 
@@ -216,42 +227,45 @@ fn bench_embeddings(c: &mut Criterion) {
 // ─── Benchmark: Store operations ────────────────────────────────────────────
 
 fn bench_store(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
     let mut group = c.benchmark_group("store");
 
     group.bench_function("insert_learning", |b| {
-        let store = setup_store();
+        let _guard = rt.enter();
+        let (store, _jh) = setup_store();
         let mut i = 0u64;
         b.iter(|| {
             let id = format!("bench-{i}");
             i += 1;
-            store
-                .insert_learning(
-                    black_box(&id),
-                    "heuristic",
-                    "Always validate input parameters before processing",
-                    Some("coding"),
-                    0.85,
-                    None,
-                )
-                .expect("insert");
+            rt.block_on(store.insert_learning(
+                black_box(id),
+                "heuristic".to_string(),
+                "Always validate input parameters before processing".to_string(),
+                Some("coding".to_string()),
+                0.85,
+                None,
+            ))
+            .expect("insert");
         })
     });
 
     group.bench_function("query_learnings_by_type", |b| {
-        let store = setup_store();
-        populate_store(&store, 500);
+        let _guard = rt.enter();
+        let (store, _jh) = setup_store();
+        populate_handle(&rt, &store, 500);
         b.iter(|| {
-            let _rows = store
-                .query_learnings_by_type(black_box("heuristic"), 10)
+            let _rows = rt
+                .block_on(store.query_learnings_by_type(black_box("heuristic".to_string()), 10))
                 .expect("query");
         })
     });
 
     group.bench_function("count_learnings", |b| {
-        let store = setup_store();
-        populate_store(&store, 500);
+        let _guard = rt.enter();
+        let (store, _jh) = setup_store();
+        populate_handle(&rt, &store, 500);
         b.iter(|| {
-            let _count = store.count_learnings().expect("count");
+            let _count = rt.block_on(store.count_learnings()).expect("count");
         })
     });
 

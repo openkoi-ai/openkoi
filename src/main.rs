@@ -17,7 +17,6 @@ use openkoi::provider::resolver;
 use openkoi::provider::{ModelProvider, ModelRef};
 use openkoi::security::permissions;
 use std::sync::Arc;
-use std::sync::Mutex;
 
 #[tokio::main]
 async fn main() {
@@ -116,9 +115,8 @@ async fn run() -> anyhow::Result<()> {
                 )
                 .await;
             }
-            let store = init_store();
-            let store_guard = store.as_ref().and_then(|s| s.lock().ok());
-            return openkoi::tui::run_dashboard(store_guard.as_deref(), &config);
+            let store = init_store_sync();
+            return openkoi::tui::run_dashboard(store.as_ref(), &config);
         }
         Some(Commands::Update { version, check }) => {
             return openkoi::cli::update::run_update(version.clone(), *check).await;
@@ -182,13 +180,17 @@ async fn run() -> anyhow::Result<()> {
         }
     };
 
-    // Initialize database (create if needed, run migrations)
-    let store = init_store();
+    // Initialize database
+    let store = init_store_async().await;
 
-    // Run decay on learnings at startup
+    // Run decay on learnings at startup (best effort, uses handle)
     if let Some(ref s) = store {
-        if let Ok(locked) = s.lock() {
-            run_startup_decay(&locked, &config);
+        let rate = config.memory.learning_decay_rate;
+        if rate > 0.0 {
+            let s_clone = s.clone();
+            tokio::spawn(async move {
+                let _ = s_clone.run_decay(rate).await;
+            });
         }
     }
 
@@ -268,33 +270,38 @@ async fn run() -> anyhow::Result<()> {
     }
 }
 
-/// Initialize the SQLite store, running migrations if needed.
-/// Returns None if the database can't be opened (non-fatal for first run).
-fn init_store() -> Option<Arc<Mutex<Store>>> {
+/// Initialize the SQLite store, start the background server, and return a handle.
+async fn init_store_async() -> Option<openkoi::memory::StoreHandle> {
     let db_path = openkoi::infra::paths::db_path();
-
-    // Ensure parent directory exists
     if let Some(parent) = db_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
 
     match rusqlite::Connection::open(&db_path) {
         Ok(conn) => {
-            // Run migrations
+            let _ = conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;");
             if let Err(e) = schema::run_migrations(&conn) {
-                tracing::warn!(
-                    "Database migration failed: {}. Memory features disabled.",
-                    e
-                );
+                tracing::warn!("Migration failed: {e}");
                 return None;
             }
-            Some(Arc::new(Mutex::new(Store::new(conn))))
+            let store = Store::new(conn);
+            let (handle, _) = openkoi::memory::store_server::spawn_store_server(store);
+            Some(handle)
         }
         Err(e) => {
-            tracing::warn!("Could not open database: {}. Memory features disabled.", e);
+            tracing::warn!("Could not open database: {e}");
             None
         }
     }
+}
+
+/// Simple synchronous store initialization for the TUI.
+fn init_store_sync() -> Option<Store> {
+    let db_path = openkoi::infra::paths::db_path();
+    rusqlite::Connection::open(&db_path).ok().map(|conn| {
+        let _ = conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;");
+        Store::new(conn)
+    })
 }
 
 /// Start MCP tool servers and return their tool definitions + the manager.
@@ -549,7 +556,7 @@ async fn run_daemon_command(action: Option<DaemonAction>, config: &Config) -> an
                 })?;
 
             // Initialize store
-            let store = init_store();
+            let store = init_store_async().await;
 
             // Initialize MCP tools
             let (mcp_tools, _mcp_manager) = init_mcp(config).await;
@@ -563,7 +570,7 @@ async fn run_daemon_command(action: Option<DaemonAction>, config: &Config) -> an
                 provider,
                 model_ref,
                 config: config.clone(),
-                store: store.clone(),
+                store,
                 skill_registry,
                 mcp_tools,
             };
@@ -630,25 +637,6 @@ async fn run_daemon_command(action: Option<DaemonAction>, config: &Config) -> an
                 println!("Daemon is not running.");
             }
             Ok(())
-        }
-    }
-}
-
-/// Apply learning decay at startup. Non-fatal if it fails.
-fn run_startup_decay(store: &Store, config: &Config) {
-    let rate = config.memory.learning_decay_rate;
-    if rate <= 0.0 {
-        return; // decay disabled
-    }
-
-    match openkoi::memory::decay::run_decay(store, rate) {
-        Ok(pruned) => {
-            if pruned > 0 {
-                tracing::debug!("Startup decay: pruned {} learnings", pruned);
-            }
-        }
-        Err(e) => {
-            tracing::warn!("Startup decay failed: {}", e);
         }
     }
 }
