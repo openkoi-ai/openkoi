@@ -221,6 +221,44 @@ async fn run() -> anyhow::Result<()> {
 
     // Dispatch
     match cli.command {
+        Some(Commands::Think {
+            ref task,
+            simulate,
+            verbose,
+        }) => {
+            let task_desc = if task.is_empty() {
+                // Interactive prompt
+                inquire::Text::new("What would you like me to think about?")
+                    .with_help_message("Describe your task, or press Esc to cancel")
+                    .prompt()
+                    .map_err(|_| anyhow::anyhow!("Task input cancelled"))?
+            } else {
+                task.join(" ")
+            };
+
+            let mcp = if mcp_manager.has_servers() {
+                Some(&mut mcp_manager)
+            } else {
+                None
+            };
+            let result = openkoi::cli::think::run_think(
+                &task_desc,
+                provider,
+                &model_ref,
+                &config,
+                cli.iterate,
+                cli.quality,
+                store.clone(),
+                all_tools,
+                mcp,
+                integrations.as_ref(),
+                simulate,
+                verbose,
+            )
+            .await;
+            mcp_manager.shutdown_all().await;
+            result
+        }
         Some(Commands::Chat) => {
             let mcp = if mcp_manager.has_servers() {
                 Some(&mut mcp_manager)

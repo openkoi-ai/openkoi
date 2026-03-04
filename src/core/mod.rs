@@ -4,6 +4,7 @@ pub mod cost;
 pub mod eval_cache;
 pub mod executor;
 pub mod orchestrator;
+pub mod parliament;
 pub mod overflow;
 pub mod safety;
 pub mod state;

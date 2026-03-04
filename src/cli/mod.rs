@@ -9,6 +9,7 @@ pub mod migrate;
 pub mod progress;
 pub mod run;
 pub mod status;
+pub mod think;
 pub mod update;
 
 use clap::{Parser, Subcommand};
@@ -54,6 +55,18 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
+    /// Think about a task: deliberate → parliament → execute → learn
+    Think {
+        /// Task description
+        #[arg(trailing_var_arg = true)]
+        task: Vec<String>,
+        /// Simulate only — show deliberation without executing
+        #[arg(long)]
+        simulate: bool,
+        /// Show full parliamentary deliberation with reasoning
+        #[arg(long)]
+        verbose: bool,
+    },
     /// Interactive chat session
     Chat,
     /// Review learned patterns and proposed skills
