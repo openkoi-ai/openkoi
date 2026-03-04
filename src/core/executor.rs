@@ -99,6 +99,7 @@ impl Executor {
         let mut accumulated_content = String::new();
         let mut total_usage = crate::provider::TokenUsage::default();
         let mut files_modified: Vec<String> = Vec::new();
+        let mut tools_used: Vec<String> = Vec::new();
 
         // We need to reborrow mcp across loop iterations
         let mut mcp = mcp;
@@ -149,6 +150,11 @@ impl Executor {
 
             // Dispatch each tool call (truncate outputs to prevent context blowup)
             for tc in &response.tool_calls {
+                // Track distinct tool names
+                if !tools_used.contains(&tc.name) {
+                    tools_used.push(tc.name.clone());
+                }
+
                 let result = dispatch_tool_call(tc, &mut mcp, integrations).await;
                 let truncated = truncation::truncate_tool_output(&result);
                 if truncated.was_truncated {
@@ -211,6 +217,7 @@ impl Executor {
             usage: total_usage,
             tool_calls_made: total_tool_calls,
             files_modified,
+            tools_used,
         })
     }
 }

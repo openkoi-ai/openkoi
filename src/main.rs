@@ -2,7 +2,9 @@
 
 use clap::Parser;
 
-use openkoi::cli::{Cli, Commands, DaemonAction};
+use openkoi::cli::{
+    Cli, Commands, DaemonAction, MindAction, ReflectAction, SoulAction, TrustAction, WorldAction,
+};
 use openkoi::infra::config::Config;
 use openkoi::infra::logger;
 use openkoi::integrations::credentials::IntegrationCredentials;
@@ -121,6 +123,72 @@ async fn run() -> anyhow::Result<()> {
         Some(Commands::Update { version, check }) => {
             return openkoi::cli::update::run_update(version.clone(), *check).await;
         }
+
+        // ── Cognitive-layer commands (no provider needed) ──
+        Some(Commands::Mind { action }) => {
+            let store = init_store_sync()
+                .ok_or_else(|| anyhow::anyhow!("Database not initialized. Run `openkoi setup`."))?;
+            match action {
+                Some(MindAction::Parliament) | None => openkoi::cli::mind::run_parliament(&store)?,
+                Some(MindAction::Agencies) => openkoi::cli::mind::run_agencies(&store)?,
+                Some(MindAction::Dissent) => openkoi::cli::mind::run_dissent(&store)?,
+                Some(MindAction::Calibrate) => openkoi::cli::mind::run_calibrate(&store)?,
+            }
+            return Ok(());
+        }
+        Some(Commands::World { action }) => {
+            let store = init_store_sync()
+                .ok_or_else(|| anyhow::anyhow!("Database not initialized. Run `openkoi setup`."))?;
+            match action {
+                Some(WorldAction::Tools { ref name }) => {
+                    openkoi::cli::world::run_tools(&store, name.as_deref())?
+                }
+                Some(WorldAction::Domains) => openkoi::cli::world::run_domains(&store)?,
+                Some(WorldAction::Human) => openkoi::cli::world::run_human(&store)?,
+                Some(WorldAction::Map) | None => openkoi::cli::world::run_map(&store)?,
+            }
+            return Ok(());
+        }
+        Some(Commands::Reflect { action }) => {
+            let store = init_store_sync()
+                .ok_or_else(|| anyhow::anyhow!("Database not initialized. Run `openkoi setup`."))?;
+            match action {
+                Some(ReflectAction::Today) | None => openkoi::cli::reflect::run_today(&store)?,
+                Some(ReflectAction::Week) => openkoi::cli::reflect::run_week(&store)?,
+                Some(ReflectAction::Growth) => openkoi::cli::reflect::run_growth(&store)?,
+                Some(ReflectAction::Honest) => openkoi::cli::reflect::run_honest(&store)?,
+            }
+            return Ok(());
+        }
+        Some(Commands::Trust { action }) => {
+            let mut store = init_store_sync()
+                .ok_or_else(|| anyhow::anyhow!("Database not initialized. Run `openkoi setup`."))?;
+            match action {
+                Some(TrustAction::Show) | None => openkoi::cli::trust::run_show(&store)?,
+                Some(TrustAction::Grant { ref domain, ref level }) => {
+                    openkoi::cli::trust::run_grant(&mut store, domain, level)?
+                }
+                Some(TrustAction::Revoke { ref domain }) => {
+                    openkoi::cli::trust::run_revoke(&mut store, domain)?
+                }
+                Some(TrustAction::Audit { ref domain }) => {
+                    openkoi::cli::trust::run_audit(&store, domain.as_deref())?
+                }
+            }
+            return Ok(());
+        }
+        Some(Commands::Soul { action }) => {
+            let store = init_store_sync()
+                .ok_or_else(|| anyhow::anyhow!("Database not initialized. Run `openkoi setup`."))?;
+            match action {
+                Some(SoulAction::Show) | None => openkoi::cli::soul::run_show()?,
+                Some(SoulAction::Diff) => openkoi::cli::soul::run_diff(&store)?,
+                Some(SoulAction::History) => openkoi::cli::soul::run_history(&store)?,
+                Some(SoulAction::Evolve) => openkoi::cli::soul::run_evolve().await?,
+            }
+            return Ok(());
+        }
+
         _ => {}
     }
 

@@ -24,6 +24,12 @@ const MIGRATIONS: &[Migration] = &[
         up: include_str!("migrations/002_vector_search.up.sql"),
         down: include_str!("migrations/002_vector_search.down.sql"),
     },
+    Migration {
+        version: 3,
+        name: "mind_world_trust",
+        up: include_str!("migrations/003_mind_world_trust.up.sql"),
+        down: include_str!("migrations/003_mind_world_trust.down.sql"),
+    },
 ];
 
 /// Run all pending migrations.

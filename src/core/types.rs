@@ -126,6 +126,9 @@ pub struct ExecutionOutput {
     pub usage: TokenUsage,
     pub tool_calls_made: u32,
     pub files_modified: Vec<String>,
+    /// Distinct tool names that were called during execution.
+    #[serde(default)]
+    pub tools_used: Vec<String>,
 }
 
 /// Result of evaluating an output.
@@ -505,6 +508,7 @@ mod tests {
             },
             tool_calls_made: 2,
             files_modified: vec!["a.rs".into(), "b.rs".into()],
+            tools_used: vec!["edit_file".into()],
         };
         let cloned = out.clone();
         assert_eq!(cloned.content, "Hello");

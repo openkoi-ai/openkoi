@@ -80,6 +80,20 @@ pub async fn run_think(
 
     render_parliament(&deliberation, verbose);
 
+    // ─── Persist deliberation to the Mind store ─────────────────────────
+    if let Some(ref s) = store {
+        if let Err(e) = s
+            .insert_deliberation(
+                deliberation.clone(),
+                Some(task.id.clone()),
+                task_description.to_string(),
+            )
+            .await
+        {
+            tracing::warn!("Failed to persist deliberation: {}", e);
+        }
+    }
+
     // ─── Check for blocks ───────────────────────────────────────────────────
     if !deliberation.approved {
         render_escalation(&deliberation);

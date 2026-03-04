@@ -297,6 +297,14 @@ impl Orchestrator {
                                 iteration: i + 1,
                             });
                         }
+                        // Record tool calls in the World / Tool Atlas
+                        if let Some(ref sh) = self.store {
+                            for tool_name in &output.tools_used {
+                                let _ = sh
+                                    .record_tool_call(tool_name.clone(), true, None)
+                                    .await;
+                            }
+                        }
                     }
                     cycle.output = Some(output);
                 }
@@ -316,6 +324,7 @@ impl Orchestrator {
                         usage: crate::provider::TokenUsage::default(),
                         tool_calls_made: 0,
                         files_modified: vec![],
+                        tools_used: vec![],
                     });
                     // Don't abort — the next iteration will use build_context_safe
                     // which prunes proactively. Mark this cycle as needing retry.
@@ -528,6 +537,7 @@ impl Orchestrator {
                 usage: crate::provider::TokenUsage::default(),
                 tool_calls_made: 0,
                 files_modified: vec![],
+                tools_used: vec![],
             }),
             iterations,
             total_tokens,

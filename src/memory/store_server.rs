@@ -114,6 +114,18 @@ pub enum StoreCommand {
         rate: f32,
         resp: oneshot::Sender<anyhow::Result<usize>>,
     },
+    InsertDeliberation {
+        deliberation: crate::core::parliament::Deliberation,
+        task_id: Option<String>,
+        task_description: String,
+        resp: oneshot::Sender<anyhow::Result<String>>,
+    },
+    RecordToolCall {
+        tool_name: String,
+        success: bool,
+        failure_reason: Option<String>,
+        resp: oneshot::Sender<anyhow::Result<()>>,
+    },
 }
 
 /// A handle to the Store that uses message passing.
@@ -425,6 +437,44 @@ impl StoreHandle {
             .await?;
         resp_rx.await?
     }
+
+    /// Insert a parliament deliberation record.
+    pub async fn insert_deliberation(
+        &self,
+        deliberation: crate::core::parliament::Deliberation,
+        task_id: Option<String>,
+        task_description: String,
+    ) -> anyhow::Result<String> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx
+            .send(StoreCommand::InsertDeliberation {
+                deliberation,
+                task_id,
+                task_description,
+                resp: resp_tx,
+            })
+            .await?;
+        resp_rx.await?
+    }
+
+    /// Record a tool call (success or failure) in the Tool Atlas.
+    pub async fn record_tool_call(
+        &self,
+        tool_name: String,
+        success: bool,
+        failure_reason: Option<String>,
+    ) -> anyhow::Result<()> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx
+            .send(StoreCommand::RecordToolCall {
+                tool_name,
+                success,
+                failure_reason,
+                resp: resp_tx,
+            })
+            .await?;
+        resp_rx.await?
+    }
 }
 
 /// Helper to spawn the store server and return a handle.
@@ -630,6 +680,25 @@ pub async fn run_store_server(store: Store, mut rx: mpsc::Receiver<StoreCommand>
             }
             StoreCommand::RunDecay { rate, resp } => {
                 let res = crate::memory::decay::run_decay(&store, rate);
+                let _ = resp.send(res);
+            }
+            StoreCommand::InsertDeliberation {
+                deliberation,
+                task_id,
+                task_description,
+                resp,
+            } => {
+                let res =
+                    store.insert_deliberation(&deliberation, task_id.as_deref(), &task_description);
+                let _ = resp.send(res);
+            }
+            StoreCommand::RecordToolCall {
+                tool_name,
+                success,
+                failure_reason,
+                resp,
+            } => {
+                let res = store.record_tool_call(&tool_name, success, failure_reason.as_deref());
                 let _ = resp.send(res);
             }
         }

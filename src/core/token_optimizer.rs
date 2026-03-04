@@ -382,6 +382,7 @@ mod tests {
             usage: crate::provider::TokenUsage::default(),
             tool_calls_made: 0,
             files_modified: vec![],
+            tools_used: vec![],
         });
         let compressed = optimizer.compress_output(&output);
         assert_eq!(compressed, "short output");
@@ -396,6 +397,7 @@ mod tests {
             usage: crate::provider::TokenUsage::default(),
             tool_calls_made: 0,
             files_modified: vec![],
+            tools_used: vec![],
         });
         let compressed = optimizer.compress_output(&output);
         assert!(compressed.len() < 2100);
@@ -418,6 +420,7 @@ mod tests {
             usage: crate::provider::TokenUsage::default(),
             tool_calls_made: 0,
             files_modified: vec![],
+            tools_used: vec![],
         });
         let compressed = optimizer.compress_output(&output);
         assert_eq!(compressed, "y".repeat(2000)); // not truncated at exactly 2000

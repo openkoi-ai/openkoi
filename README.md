@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-openkoi.ai-8B5CF6)](https://openkoi.ai)
 
-**Stop babysitting your AI. OpenKoi iterates until the code is right.**
+**Executive Function as a Service.** Stop babysitting your AI. OpenKoi thinks before it acts, deliberates internally, and iterates until the code is right.
 
 AI coding tools generate a first draft and leave you to fix it. You review, correct, re-prompt — and become the AI's QA department. OpenKoi is different. It follows a **Plan-Execute-Evaluate-Refine** loop, iterating on its own output until results meet your quality standards. The agent is its own reviewer.
 
@@ -23,15 +23,17 @@ cargo install openkoi
 # or
 curl -fsSL https://openkoi.ai/install.sh | sh
 
-# 2. Run — OpenKoi finds your API keys automatically
-openkoi "Refactor the auth module to use JWT tokens"
+# 2. Think — OpenKoi deliberates before it acts
+openkoi think "Refactor the auth module to use JWT tokens"
 
 # 3. Ship — it iterates until the code passes its own review
-#    [PLAN] Analyzing src/auth/ — 4 files, 312 lines
+#    [SOVEREIGN] "Direct, test-driven, security-conscious"
+#    [PARLIAMENT] Guardian=APPROVE Economist=APPROVE Scholar=APPROVE+
 #    [EXEC] Rewriting token.rs, middleware.rs, handlers.rs
 #    [EVAL] correctness=9.2 safety=9.5 style=8.8
 #    [REFN] Style below 9.0 — tightening error types
 #    [EVAL] correctness=9.4 safety=9.5 style=9.3
+#    [LEARNED] "JWT refresh tokens need constant-time comparison"
 #    ✓ Done. 3 iterations. 4 files changed.
 ```
 
@@ -41,9 +43,12 @@ No config file needed. No setup wizard. OpenKoi detects your API keys from envir
 
 | Before OpenKoi | With OpenKoi |
 |----------------|--------------|
+| `agent run "do X"` → output | `openkoi think "do X"` → deliberation → parliament → output |
+| You see the result | You see **how it decided**, not just what it decided |
 | You manually review every AI output | The agent evaluates its own work against rubrics |
-| You re-prompt corrections 3–5 times | Automatic iteration, stops when quality threshold is met |
+| You re-prompt corrections 3-5 times | Automatic iteration, stops when quality threshold is met |
 | Learnings vanish between sessions | Patterns persist locally; skills improve over time |
+| Memory is hidden | World model is inspectable: `openkoi world`, `openkoi mind` |
 | Locked to one provider | Switch providers with a flag; different models per role |
 | Data on someone else's cloud | Everything stays on your machine |
 | 500ms startup, 100MB memory | <10ms startup, ~5MB idle, ~20MB binary |
@@ -70,28 +75,66 @@ No config file needed. No setup wizard. OpenKoi detects your API keys from envir
 - **10 integrations** — Slack, Discord, MS Teams, GitHub, Jira, Linear, Notion, Google Docs, Telegram, Email.
 - **TUI dashboard** — Real-time view of tasks, costs, learnings, plugins, and config.
 - **Soul system** — Optional personality that evolves with your interaction patterns.
+- **Cognitive CLI** — `think` replaces `run`: deliberation before execution. Inspect the Parliament, World Map, Trust levels, and Reflection loops from the terminal.
+- **Society of Mind** — Five agencies (Guardian, Economist, Empath, Scholar, Strategist) deliberate on every task. View verdicts with `openkoi mind`.
+- **World model** — Tool Atlas tracks reliability and failure modes. Domain Atlas captures learned expertise. Human Atlas models your preferences.
+- **Trust & delegation** — Grant autonomous action per domain, revoke anytime, audit every decision the agent made on its own.
+- **Reflection loops** — Daily, weekly, and deep self-assessment. Epistemic honesty audit shows where the agent was wrong and what it learned.
 
 ## CLI
 
+### Core
+
 ```bash
 openkoi "task"              # Run a task (default 3 iterations)
+openkoi think "task"        # EFaaS pipeline: Sovereign → Parliament → Execute → Learn
+openkoi think "task" --simulate  # Simulate futures without executing
+openkoi think "task" --verbose   # Show full parliamentary deliberation
 openkoi chat                # Interactive REPL
 openkoi learn               # Review proposed skills (interactive picker)
 openkoi status              # Show costs, memory, active models
 openkoi status --live       # Watch the running task in real-time
-openkoi status --costs      # Show cost tracking summary
-openkoi doctor              # Run diagnostics
-openkoi connect             # Interactive picker: choose provider or integration
-openkoi connect copilot     # Login to GitHub Copilot (direct)
-openkoi connect chatgpt     # Login to ChatGPT Plus/Pro (direct)
+openkoi setup               # First-time setup, diagnostics, provider connections
+openkoi dashboard           # TUI dashboard for tasks, costs, learnings, plugins
 openkoi disconnect          # Interactive picker: choose from connected providers
-openkoi disconnect copilot  # Remove stored credentials (direct)
-openkoi daemon              # Interactive picker: start/stop/status
-openkoi export              # Interactive picker: choose target and format
-openkoi export all          # Export all data as JSON (direct)
-openkoi -m ?                # Interactive model picker
-openkoi --select-model      # Same as -m ?
 openkoi update              # Self-update
+```
+
+### Cognitive Commands
+
+Introspect the agent's mind. Every command works with no arguments (shows overview) or with a subcommand for detail.
+
+```bash
+# Soul — Sovereign identity
+openkoi soul show           # Display current SOUL.md + Value Model + Trajectory
+openkoi soul evolve         # Trigger soul evolution check from accumulated learnings
+openkoi soul diff           # Show proposed changes with evidence
+openkoi soul history        # Show evolution timeline
+
+# Mind — Society of Mind introspection
+openkoi mind parliament     # Show last parliamentary deliberation
+openkoi mind agencies       # List active agencies + recent verdicts
+openkoi mind dissent        # Show cases where agencies disagreed
+openkoi mind calibrate      # Review agency prediction accuracy vs. outcomes
+
+# World — World model inspection
+openkoi world tools         # Tool Atlas: reliability, failure modes, call history
+openkoi world tools <name>  # Drill into a specific tool
+openkoi world domains       # Domain Atlas: learned domain knowledge
+openkoi world human         # Human Atlas: what the agent knows about you
+openkoi world map           # Full World Map overview
+
+# Reflect — Feedback loops & self-assessment
+openkoi reflect today       # Tight loop: today's tasks, decisions, outcomes
+openkoi reflect week        # Medium loop: weekly patterns and behavioral trends
+openkoi reflect growth      # Deep loop: maturity stage and unlock progress
+openkoi reflect honest      # Epistemic audit: where was I wrong? what did I learn?
+
+# Trust — Trust & delegation management
+openkoi trust show          # Current trust level per domain
+openkoi trust grant <domain> <level>  # Delegate a domain (levels: ask, suggest, act, autonomous)
+openkoi trust revoke <domain>         # Revoke delegation
+openkoi trust audit [domain]          # Audit autonomous actions taken
 ```
 
 ### Task flags
@@ -221,6 +264,15 @@ on_budget_warning = "https://example.com/hooks/budget"
 
 ```
               ┌─────────────────┐
+              │    Sovereign     │  ← Soul (SOUL.md + Value Model + Trajectory)
+              │    Directive     │
+              └────────┬────────┘
+                       │
+              ┌────────▼────────┐
+              │   Parliament     │  ← Mind (Guardian, Economist, Empath, Scholar, Strategist)
+              └────────┬────────┘
+                       │
+              ┌────────▼────────┐
               │   Orchestrator   │
               └────────┬────────┘
        ┌───────┬───────┼───────┬──────────┐
@@ -229,6 +281,9 @@ on_budget_warning = "https://example.com/hooks/budget"
        │                     Miner
        ▼
      Tools (MCP / WASM / Rhai)
+       │
+       ▼
+   World Model  ← World (Tool Atlas + Domain Atlas + Human Atlas)
 ```
 
 Supported platforms: **Linux** (x86_64, ARM64) and **macOS** (Intel, Apple Silicon). Built with Rust + Tokio. < 10ms startup, ~5MB idle memory, ~20MB binary.

@@ -72,6 +72,7 @@ mod tests {
             usage: TokenUsage::default(),
             tool_calls_made: 0,
             files_modified: vec![],
+            tools_used: vec![],
         });
         c
     }
