@@ -1,8 +1,8 @@
 [package]
 name = "openkoi"
-version = "2026.2.25"
+version = "2026.3.3"
 edition = "2021"
-description = "AI coding agent that reviews its own work. Plan-Execute-Evaluate-Refine loop. Single binary, any model."
+description = "Executive Function as a Service. AI agent that thinks before it acts. Single binary, any model."
 license = "MIT"
 repository = "https://github.com/openkoi-ai/openkoi"
 homepage = "https://openkoi.ai"
