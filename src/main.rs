@@ -161,15 +161,16 @@ async fn run() -> anyhow::Result<()> {
             return Ok(());
         }
         Some(Commands::Trust { action }) => {
-            let mut store = init_store_sync()
+            let store = init_store_sync()
                 .ok_or_else(|| anyhow::anyhow!("Database not initialized. Run `openkoi setup`."))?;
             match action {
                 Some(TrustAction::Show) | None => openkoi::cli::trust::run_show(&store)?,
-                Some(TrustAction::Grant { ref domain, ref level }) => {
-                    openkoi::cli::trust::run_grant(&mut store, domain, level)?
-                }
+                Some(TrustAction::Grant {
+                    ref domain,
+                    ref level,
+                }) => openkoi::cli::trust::run_grant(&store, domain, level)?,
                 Some(TrustAction::Revoke { ref domain }) => {
-                    openkoi::cli::trust::run_revoke(&mut store, domain)?
+                    openkoi::cli::trust::run_revoke(&store, domain)?
                 }
                 Some(TrustAction::Audit { ref domain }) => {
                     openkoi::cli::trust::run_audit(&store, domain.as_deref())?

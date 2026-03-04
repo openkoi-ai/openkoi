@@ -300,9 +300,7 @@ impl Orchestrator {
                         // Record tool calls in the World / Tool Atlas
                         if let Some(ref sh) = self.store {
                             for tool_name in &output.tools_used {
-                                let _ = sh
-                                    .record_tool_call(tool_name.clone(), true, None)
-                                    .await;
+                                let _ = sh.record_tool_call(tool_name.clone(), true, None).await;
                             }
                         }
                     }

@@ -383,7 +383,10 @@ SCHOLAR: APPROVE | Fine
 STRATEGIST: BLOCK | REASON: Guardian block cannot be overridden";
 
         let assessments = parse_deliberation(content);
-        let guardian = assessments.iter().find(|a| a.agency == Agency::Guardian).unwrap();
+        let guardian = assessments
+            .iter()
+            .find(|a| a.agency == Agency::Guardian)
+            .unwrap();
         assert!(guardian.verdict.is_block());
 
         let delib = Deliberation::from_assessments(assessments);

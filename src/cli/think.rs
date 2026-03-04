@@ -51,20 +51,15 @@ pub async fn run_think(
 
     // ─── Phase 1: Sovereign Directive ───────────────────────────────────────
     eprintln!();
-    let directive = match sovereign::emit_directive(
-        &provider,
-        &model_ref.model,
-        &soul,
-        task_description,
-    )
-    .await
-    {
-        Ok(d) => d,
-        Err(e) => {
-            tracing::warn!("LLM directive failed, using static fallback: {}", e);
-            sovereign::static_directive(&soul, task_description)
-        }
-    };
+    let directive =
+        match sovereign::emit_directive(&provider, &model_ref.model, &soul, task_description).await
+        {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::warn!("LLM directive failed, using static fallback: {}", e);
+                sovereign::static_directive(&soul, task_description)
+            }
+        };
 
     render_box("🧠 SOVEREIGN DIRECTIVE", &directive.text);
 
@@ -243,11 +238,7 @@ fn render_parliament(deliberation: &Deliberation, verbose: bool) {
     let border = "─".repeat(width);
 
     eprintln!("╭─{}─╮", border);
-    eprintln!(
-        "│ {:<width$} │",
-        "🏛️  PARLIAMENT",
-        width = width
-    );
+    eprintln!("│ {:<width$} │", "🏛️  PARLIAMENT", width = width);
     eprintln!("│{:width$}│", "", width = width + 2);
 
     for assessment in &deliberation.assessments {
@@ -256,13 +247,7 @@ fn render_parliament(deliberation: &Deliberation, verbose: bool) {
         let verdict_sym = assessment.verdict.symbol();
         let verdict_label = assessment.verdict.label();
 
-        let line = format!(
-            "{} {:<12} {} {}",
-            symbol,
-            name,
-            verdict_sym,
-            verdict_label
-        );
+        let line = format!("{} {:<12} {} {}", symbol, name, verdict_sym, verdict_label);
         let line = if line.len() > width {
             line[..line.floor_char_boundary(width)].to_string()
         } else {
@@ -335,11 +320,7 @@ fn render_simulation_footer() {
     let border = "─".repeat(width);
 
     eprintln!("╭─{}─╮", border);
-    eprintln!(
-        "│ {:<width$} │",
-        "🔮 SIMULATION COMPLETE",
-        width = width
-    );
+    eprintln!("│ {:<width$} │", "🔮 SIMULATION COMPLETE", width = width);
     eprintln!("│{:width$}│", "", width = width + 2);
     eprintln!(
         "│ {:<width$} │",
@@ -350,12 +331,7 @@ fn render_simulation_footer() {
     eprintln!();
 }
 
-fn render_result(
-    content: &str,
-    final_score: f64,
-    cost: f64,
-    learnings_saved: u32,
-) {
+fn render_result(content: &str, final_score: f64, cost: f64, learnings_saved: u32) {
     let width = 65;
     let border = "─".repeat(width);
 
