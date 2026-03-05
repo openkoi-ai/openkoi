@@ -431,3 +431,5 @@ Full documentation at [openkoi.ai](https://openkoi.ai).
 ## License
 
 [MIT](LICENSE)
+
+[![Star History Chart](https://api.star-history.com/svg?repos=openkoi-ai/openkoi&type=Date)](https://star-history.com/#openkoi-ai/openkoi&Date)
