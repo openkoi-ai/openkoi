@@ -198,8 +198,8 @@ impl Orchestrator {
         let mut budget = TokenBudget::new(self.config.token_budget);
         let mut best_idx: Option<usize> = None;
 
-        // Persist task record
-        let task_id = uuid::Uuid::new_v4().to_string();
+        // Persist task record (reuse the ID from TaskInput for consistency)
+        let task_id = task.id.clone();
         if let Some(ref store) = self.store {
             let _ = store
                 .insert_task(

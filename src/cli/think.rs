@@ -76,13 +76,12 @@ pub async fn run_think(
     render_parliament(&deliberation, verbose);
 
     // ─── Persist deliberation to the Mind store ─────────────────────────
+    // Pass None for task_id initially — the task row doesn't exist yet.
+    // After orchestrator.run() inserts the task, the deliberation can be
+    // associated via the shared task description or updated later.
     if let Some(ref s) = store {
         if let Err(e) = s
-            .insert_deliberation(
-                deliberation.clone(),
-                Some(task.id.clone()),
-                task_description.to_string(),
-            )
+            .insert_deliberation(deliberation.clone(), None, task_description.to_string())
             .await
         {
             tracing::warn!("Failed to persist deliberation: {}", e);
@@ -212,6 +211,56 @@ pub async fn run_think(
 
 // ─── Rendering ──────────────────────────────────────────────────────────────
 
+/// Word-wrap `text` to fit within `max_width` characters per line.
+/// Splits on word boundaries when possible; breaks mid-word only if a single
+/// word exceeds the width.
+fn wrap_lines(text: &str, max_width: usize) -> Vec<String> {
+    let mut result = Vec::new();
+    for input_line in text.lines() {
+        if input_line.is_empty() {
+            result.push(String::new());
+            continue;
+        }
+        let mut current = String::new();
+        for word in input_line.split_whitespace() {
+            if word.len() > max_width && current.is_empty() {
+                // Single word exceeds width — hard-break it
+                let mut remaining = word;
+                while !remaining.is_empty() {
+                    let boundary = remaining.floor_char_boundary(max_width);
+                    if boundary == 0 {
+                        break;
+                    }
+                    result.push(remaining[..boundary].to_string());
+                    remaining = &remaining[boundary..];
+                }
+                continue;
+            }
+            let needed = if current.is_empty() {
+                word.len()
+            } else {
+                current.len() + 1 + word.len()
+            };
+            if needed > max_width {
+                result.push(std::mem::take(&mut current));
+                current = word.to_string();
+            } else if current.is_empty() {
+                current = word.to_string();
+            } else {
+                current.push(' ');
+                current.push_str(word);
+            }
+        }
+        if !current.is_empty() {
+            result.push(current);
+        }
+    }
+    if result.is_empty() {
+        result.push(String::new());
+    }
+    result
+}
+
 fn render_box(title: &str, content: &str) {
     let width = 65;
     let border = "─".repeat(width);
@@ -220,13 +269,8 @@ fn render_box(title: &str, content: &str) {
     eprintln!("│ {:<width$} │", title, width = width);
     eprintln!("│{:width$}│", "", width = width + 2);
 
-    for line in content.lines() {
-        let line = if line.len() > width {
-            &line[..line.floor_char_boundary(width)]
-        } else {
-            line
-        };
-        eprintln!("│ {:<width$} │", line, width = width);
+    for wrapped in wrap_lines(content, width) {
+        eprintln!("│ {:<width$} │", wrapped, width = width);
     }
 
     eprintln!("╰─{}─╯", border);
@@ -255,28 +299,64 @@ fn render_parliament(deliberation: &Deliberation, verbose: bool) {
         };
         eprintln!("│ {:<width$} │", line, width = width);
 
-        if verbose {
-            let reasoning = &assessment.reasoning;
-            let max_reason = width - 4;
-            let short = if reasoning.len() > max_reason {
-                &reasoning[..reasoning.floor_char_boundary(max_reason)]
-            } else {
-                reasoning
-            };
-            eprintln!("│   {:<width$} │", short, width = width - 2);
+        // Always show reasoning (wrapped), indent under the verdict line
+        let reasoning = &assessment.reasoning;
+        if !reasoning.is_empty() {
+            let indent = 4; // spaces of indent for reasoning
+            let reason_width = width - indent;
+            for wrapped in wrap_lines(reasoning, reason_width) {
+                eprintln!(
+                    "│ {:indent$}{:<reason_width$} │",
+                    "",
+                    wrapped,
+                    indent = indent,
+                    reason_width = reason_width
+                );
+            }
         }
+
+        // Show extra detail when --verbose (caveat text or block reason)
+        if verbose {
+            match &assessment.verdict {
+                crate::core::parliament::Verdict::ApproveWithCaveat(caveat) => {
+                    let caveat_line = format!("    Caveat: {}", caveat);
+                    for wrapped in wrap_lines(&caveat_line, width) {
+                        eprintln!("│ {:<width$} │", wrapped, width = width);
+                    }
+                }
+                crate::core::parliament::Verdict::Block(reason) => {
+                    let block_line = format!("    Block: {}", reason);
+                    for wrapped in wrap_lines(&block_line, width) {
+                        eprintln!("│ {:<width$} │", wrapped, width = width);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        eprintln!("│{:width$}│", "", width = width + 2);
     }
 
-    eprintln!("│{:width$}│", "", width = width + 2);
-
-    // Synthesis
-    let synth_line = format!("Synthesis: {}", deliberation.synthesis);
-    let synth_line = if synth_line.len() > width {
-        synth_line[..synth_line.floor_char_boundary(width)].to_string()
-    } else {
-        synth_line
-    };
-    eprintln!("│ {:<width$} │", synth_line, width = width);
+    // Synthesis (wrapped)
+    let synth_prefix = "Synthesis: ";
+    let first_line_width = width - synth_prefix.len();
+    let synth_wrapped = wrap_lines(&deliberation.synthesis, first_line_width);
+    for (i, line) in synth_wrapped.iter().enumerate() {
+        if i == 0 {
+            let full = format!("{}{}", synth_prefix, line);
+            eprintln!("│ {:<width$} │", full, width = width);
+        } else {
+            // Continuation lines aligned with synthesis text
+            let padding = synth_prefix.len();
+            eprintln!(
+                "│ {:padding$}{:<rest$} │",
+                "",
+                line,
+                padding = padding,
+                rest = width - padding
+            );
+        }
+    }
 
     eprintln!("╰─{}─╯", border);
     eprintln!();
@@ -291,13 +371,25 @@ fn render_escalation(deliberation: &Deliberation) {
     eprintln!("│{:width$}│", "", width = width + 2);
 
     for block in &deliberation.blocks {
-        let line = format!("⛔ {}", block);
-        let line = if line.len() > width {
-            line[..line.floor_char_boundary(width)].to_string()
-        } else {
-            line
-        };
-        eprintln!("│ {:<width$} │", line, width = width);
+        // First line gets the ⛔ prefix, continuation lines are indented
+        let prefix = "⛔ ";
+        let first_width = width - prefix.len();
+        let block_wrapped = wrap_lines(block, first_width);
+        for (i, line) in block_wrapped.iter().enumerate() {
+            if i == 0 {
+                let full = format!("{}{}", prefix, line);
+                eprintln!("│ {:<width$} │", full, width = width);
+            } else {
+                let padding = prefix.len();
+                eprintln!(
+                    "│ {:padding$}{:<rest$} │",
+                    "",
+                    line,
+                    padding = padding,
+                    rest = width - padding
+                );
+            }
+        }
     }
 
     eprintln!("│{:width$}│", "", width = width + 2);
@@ -347,11 +439,8 @@ fn render_result(content: &str, final_score: f64, cost: f64, learnings_saved: u3
         cost,
         learnings_saved,
     );
-    let summary = if summary.len() > width {
-        summary[..summary.floor_char_boundary(width)].to_string()
-    } else {
-        summary
-    };
-    eprintln!("│ {:<width$} │", summary, width = width);
+    for wrapped in wrap_lines(&summary, width) {
+        eprintln!("│ {:<width$} │", wrapped, width = width);
+    }
     eprintln!("╰─{}─╯", border);
 }
