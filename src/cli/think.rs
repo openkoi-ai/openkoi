@@ -1,4 +1,4 @@
-// src/cli/think.rs — `koi think` command: deliberation before action
+// src/cli/think.rs — `openkoi think` command: deliberation before action
 //
 // This is the EFaaS flagship command. Unlike `run`, it shows the full
 // cognitive process: Sovereign Directive → Simulation → Parliament → Execute → Learn.

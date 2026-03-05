@@ -1,11 +1,11 @@
-// src/cli/mind.rs — `koi mind` command: Society of Mind introspection
+// src/cli/mind.rs — `openkoi mind` command: Society of Mind introspection
 //
 // Displays parliament deliberation history, agency verdicts,
 // dissent records, and calibration data.
 
 use crate::memory::store::Store;
 
-/// Run `koi mind parliament` — show the last deliberation record.
+/// Run `openkoi mind parliament` — show the last deliberation record.
 pub fn run_parliament(store: &Store) -> anyhow::Result<()> {
     let delib = store.query_last_deliberation()?;
 
@@ -77,14 +77,14 @@ pub fn run_parliament(store: &Store) -> anyhow::Result<()> {
             // Fix: use proper bottom-left corner
         }
         None => {
-            eprintln!("No deliberation records found. Run `koi think` first.");
+            eprintln!("No deliberation records found. Run `openkoi think` first.");
         }
     }
 
     Ok(())
 }
 
-/// Run `koi mind agencies` — list agencies with recent verdicts.
+/// Run `openkoi mind agencies` — list agencies with recent verdicts.
 pub fn run_agencies(store: &Store) -> anyhow::Result<()> {
     let calibrations = store.query_agency_calibrations()?;
 
@@ -102,7 +102,7 @@ pub fn run_agencies(store: &Store) -> anyhow::Result<()> {
     if calibrations.is_empty() {
         eprintln!(
             "\u{2502} {:<w$} \u{2502}",
-            "No agency data yet. Run `koi think` to generate deliberations.",
+            "No agency data yet. Run `openkoi think` to generate deliberations.",
             w = w
         );
     } else {
@@ -130,7 +130,7 @@ pub fn run_agencies(store: &Store) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Run `koi mind dissent` — show cases where agencies disagreed.
+/// Run `openkoi mind dissent` — show cases where agencies disagreed.
 pub fn run_dissent(store: &Store) -> anyhow::Result<()> {
     let dissents = store.query_dissent_cases(10)?;
 
@@ -184,7 +184,7 @@ pub fn run_dissent(store: &Store) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Run `koi mind calibrate` — review agency accuracy vs. outcomes.
+/// Run `openkoi mind calibrate` — review agency accuracy vs. outcomes.
 pub fn run_calibrate(store: &Store) -> anyhow::Result<()> {
     let calibrations = store.query_agency_calibrations()?;
 

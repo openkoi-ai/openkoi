@@ -1,4 +1,4 @@
-// src/cli/soul.rs — `koi soul` command: Sovereign layer inspection
+// src/cli/soul.rs — `openkoi soul` command: Sovereign layer inspection
 //
 // show    — display current SOUL.md + source + metadata
 // diff    — show proposed soul changes (from last evolution check)
@@ -8,7 +8,7 @@
 use crate::memory::store::Store;
 use crate::soul::loader;
 
-/// Run `koi soul show` — display the current soul.
+/// Run `openkoi soul show` — display the current soul.
 pub fn run_show() -> anyhow::Result<()> {
     let soul = loader::load_soul();
 
@@ -68,7 +68,7 @@ pub fn run_show() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Run `koi soul diff` — show what would change if soul evolved.
+/// Run `openkoi soul diff` — show what would change if soul evolved.
 pub fn run_diff(store: &Store) -> anyhow::Result<()> {
     let soul = loader::load_soul();
     let learnings = store.query_all_learnings()?;
@@ -107,7 +107,7 @@ pub fn run_diff(store: &Store) -> anyhow::Result<()> {
         eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&msg, w), w = w);
         eprintln!(
             "\u{2502} {:<w$} \u{2502}",
-            "Run `koi soul evolve` when ready to generate proposals.",
+            "Run `openkoi soul evolve` when ready to generate proposals.",
             w = w
         );
     } else {
@@ -141,7 +141,7 @@ pub fn run_diff(store: &Store) -> anyhow::Result<()> {
         eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
         eprintln!(
             "\u{2502} {:<w$} \u{2502}",
-            "Run `koi soul evolve` to generate a full proposal.",
+            "Run `openkoi soul evolve` to generate a full proposal.",
             w = w
         );
     }
@@ -153,7 +153,7 @@ pub fn run_diff(store: &Store) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Run `koi soul history` — show evolution timeline.
+/// Run `openkoi soul history` — show evolution timeline.
 pub fn run_history(store: &Store) -> anyhow::Result<()> {
     // For now, show learnings that impacted the soul over time
     let learnings = store.query_all_learnings()?;
@@ -235,9 +235,9 @@ pub fn run_history(store: &Store) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Run `koi soul evolve` — analyze learnings and propose soul evolution.
+/// Run `openkoi soul evolve` — analyze learnings and propose soul evolution.
 ///
-/// Requires an LLM provider. Opens its own DB connection (like `koi learn evolve-soul`).
+/// Requires an LLM provider. Opens its own DB connection (like `openkoi learn evolve-soul`).
 pub async fn run_evolve() -> anyhow::Result<()> {
     use std::sync::Arc;
 

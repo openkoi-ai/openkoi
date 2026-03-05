@@ -1,4 +1,4 @@
-// src/cli/trust.rs — `koi trust` command: trust & delegation management
+// src/cli/trust.rs — `openkoi trust` command: trust & delegation management
 //
 // show   — current trust level per domain
 // grant  — delegate a domain to higher trust
@@ -8,7 +8,7 @@
 use crate::memory::store::Store;
 use crate::trust::TrustLevel;
 
-/// Run `koi trust show` — current trust levels.
+/// Run `openkoi trust show` — current trust levels.
 pub fn run_show(store: &Store) -> anyhow::Result<()> {
     let entries = store.query_trust_levels()?;
 
@@ -47,12 +47,12 @@ pub fn run_show(store: &Store) -> anyhow::Result<()> {
     eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
     eprintln!(
         "\u{2502} {:<w$} \u{2502}",
-        "Grant trust:  koi trust grant <domain> <level>",
+        "Grant trust:  openkoi trust grant <domain> <level>",
         w = w
     );
     eprintln!(
         "\u{2502} {:<w$} \u{2502}",
-        "Revoke trust: koi trust revoke <domain>",
+        "Revoke trust: openkoi trust revoke <domain>",
         w = w
     );
     eprintln!("\u{2570}\u{2500}{}\u{2500}\u{256f}", border);
@@ -60,7 +60,7 @@ pub fn run_show(store: &Store) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Run `koi trust grant <domain> <level>`.
+/// Run `openkoi trust grant <domain> <level>`.
 pub fn run_grant(store: &Store, domain: &str, level: &str) -> anyhow::Result<()> {
     let trust_level = TrustLevel::from_str_loose(level);
 
@@ -82,7 +82,7 @@ pub fn run_grant(store: &Store, domain: &str, level: &str) -> anyhow::Result<()>
     Ok(())
 }
 
-/// Run `koi trust revoke <domain>`.
+/// Run `openkoi trust revoke <domain>`.
 pub fn run_revoke(store: &Store, domain: &str) -> anyhow::Result<()> {
     store.revoke_trust(domain)?;
 
@@ -100,7 +100,7 @@ pub fn run_revoke(store: &Store, domain: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Run `koi trust audit [domain]`.
+/// Run `openkoi trust audit [domain]`.
 pub fn run_audit(store: &Store, domain: Option<&str>) -> anyhow::Result<()> {
     let w = 65;
     let border = "\u{2500}".repeat(w);
@@ -245,7 +245,7 @@ pub fn run_audit(store: &Store, domain: Option<&str>) -> anyhow::Result<()> {
         eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
         eprintln!(
             "\u{2502} {:<w$} \u{2502}",
-            "Drill into domain: koi trust audit <domain>",
+            "Drill into domain: openkoi trust audit <domain>",
             w = w
         );
         eprintln!("\u{2570}\u{2500}{}\u{2500}\u{256f}", border);

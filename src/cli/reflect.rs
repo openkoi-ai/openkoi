@@ -1,4 +1,4 @@
-// src/cli/reflect.rs — `koi reflect` command: feedback loops & self-assessment
+// src/cli/reflect.rs — `openkoi reflect` command: feedback loops & self-assessment
 //
 // today  — tight loop: today's tasks, decisions, outcomes
 // week   — medium loop: patterns, behavioral trends
@@ -8,7 +8,7 @@
 use crate::memory::store::Store;
 use crate::reflect::{self, StageStatus};
 
-/// Run `koi reflect today`.
+/// Run `openkoi reflect today`.
 pub fn run_today(store: &Store) -> anyhow::Result<()> {
     let r = reflect::reflect_today(store)?;
 
@@ -108,7 +108,7 @@ pub fn run_today(store: &Store) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Run `koi reflect week`.
+/// Run `openkoi reflect week`.
 pub fn run_week(store: &Store) -> anyhow::Result<()> {
     let r = reflect::reflect_week(store)?;
 
@@ -151,7 +151,7 @@ pub fn run_week(store: &Store) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Run `koi reflect growth`.
+/// Run `openkoi reflect growth`.
 pub fn run_growth(store: &Store) -> anyhow::Result<()> {
     let g = reflect::reflect_growth(store)?;
 
@@ -210,7 +210,7 @@ pub fn run_growth(store: &Store) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Run `koi reflect honest`.
+/// Run `openkoi reflect honest`.
 pub fn run_honest(store: &Store) -> anyhow::Result<()> {
     let audit = reflect::reflect_honest(store)?;
 

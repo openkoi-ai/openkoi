@@ -1,10 +1,10 @@
-// src/cli/world.rs — `koi world` command: the Substrate / World Map
+// src/cli/world.rs — `openkoi world` command: the Substrate / World Map
 //
 // Displays the Tool Atlas, Domain Atlas, Human Atlas, and World Map overview.
 
 use crate::memory::store::Store;
 
-/// Run `koi world tools [name]` — Tool Atlas overview or drill-down.
+/// Run `openkoi world tools [name]` — Tool Atlas overview or drill-down.
 pub fn run_tools(store: &Store, tool_name: Option<&str>) -> anyhow::Result<()> {
     let w = 65;
     let border = "\u{2500}".repeat(w);
@@ -139,7 +139,7 @@ pub fn run_tools(store: &Store, tool_name: Option<&str>) -> anyhow::Result<()> {
             eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
             eprintln!(
                 "\u{2502} {:<w$} \u{2502}",
-                "\u{1f50d} Drill into any tool: koi world tools <name>",
+                "\u{1f50d} Drill into any tool: openkoi world tools <name>",
                 w = w
             );
         }
@@ -150,7 +150,7 @@ pub fn run_tools(store: &Store, tool_name: Option<&str>) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Run `koi world domains` — Domain Atlas.
+/// Run `openkoi world domains` — Domain Atlas.
 pub fn run_domains(store: &Store) -> anyhow::Result<()> {
     let domains = store.query_domain_atlas()?;
 
@@ -199,7 +199,7 @@ pub fn run_domains(store: &Store) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Run `koi world human` — Human Atlas.
+/// Run `openkoi world human` — Human Atlas.
 pub fn run_human(store: &Store) -> anyhow::Result<()> {
     let attrs = store.query_human_atlas()?;
 
@@ -245,7 +245,7 @@ pub fn run_human(store: &Store) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Run `koi world map` — full World Map overview.
+/// Run `openkoi world map` — full World Map overview.
 pub fn run_map(store: &Store) -> anyhow::Result<()> {
     let overview = store.query_world_overview()?;
 
@@ -291,7 +291,7 @@ pub fn run_map(store: &Store) -> anyhow::Result<()> {
     eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
     eprintln!(
         "\u{2502} {:<w$} \u{2502}",
-        "Drill down: koi world tools | koi world domains | koi world human",
+        "Drill down: openkoi world tools | openkoi world domains | openkoi world human",
         w = w
     );
     eprintln!("\u{2570}\u{2500}{}\u{2500}\u{256f}", border);
