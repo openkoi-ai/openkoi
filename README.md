@@ -13,7 +13,7 @@ AI coding tools generate a first draft and leave you to fix it. You review, corr
 
 Ships as a single static binary. Zero runtime dependencies. Works with any model.
 
-![](./peer-loop.svg)
+![](./peer-loop.png)
 
 ## Three Steps
 
@@ -27,6 +27,7 @@ curl -fsSL https://openkoi.ai/install.sh | sh
 openkoi think "Refactor the auth module to use JWT tokens"
 
 # 3. Ship — it iterates until the code passes its own review
+
 #    [SOVEREIGN] "Direct, test-driven, security-conscious"
 #    [PARLIAMENT] Guardian=APPROVE Economist=APPROVE Scholar=APPROVE+
 #    [EXEC] Rewriting token.rs, middleware.rs, handlers.rs
