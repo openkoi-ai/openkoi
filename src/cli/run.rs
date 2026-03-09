@@ -6,6 +6,7 @@ use crate::core::orchestrator::{Orchestrator, SessionContext};
 use crate::core::safety::SafetyChecker;
 use crate::core::types::{IterationEngineConfig, TaskInput};
 use crate::infra::config::Config;
+use crate::infra::session::Session;
 use crate::integrations::registry::IntegrationRegistry;
 use crate::learner::skill_selector::SkillSelector;
 use crate::memory::recall::{self, HistoryRecall};
@@ -32,7 +33,23 @@ pub async fn run_task(
     integrations: Option<&IntegrationRegistry>,
     quiet: bool,
 ) -> anyhow::Result<()> {
-    let task = TaskInput::new(task_description);
+    // Create a session for this CLI task
+    let session = Session::new("cli").with_model(&model_ref.provider, &model_ref.model);
+
+    let mut task = TaskInput::new(task_description);
+    task.session_id = Some(session.id.clone());
+
+    // Persist session to DB
+    if let Some(ref s) = store {
+        let _ = s
+            .insert_session(
+                session.id.clone(),
+                session.channel.clone(),
+                session.model_provider.clone().unwrap_or_default(),
+                session.model_id.clone().unwrap_or_default(),
+            )
+            .await;
+    }
 
     let mut engine_config = IterationEngineConfig::from(&config.iteration);
     engine_config.max_iterations = max_iterations;
@@ -117,12 +134,28 @@ pub async fn run_task(
         );
     }
 
+    let task_id = task.id.clone();
     let result = orchestrator
         .run(task, &ctx, mcp_manager, integrations)
         .await?;
 
     // Display result
     println!("{}", result.output.content);
+
+    // Save task output to session directory
+    if let Ok(output_path) = session.save_task_output(&task_id, &result.output.content) {
+        if let Some(ref s) = store {
+            let _ = s.set_task_output_path(task_id.clone(), output_path).await;
+        }
+    }
+
+    // Update session totals and end it
+    if let Some(ref s) = store {
+        let _ = s
+            .update_session_totals(session.id.clone(), result.total_tokens as i64, result.cost)
+            .await;
+        let _ = s.end_session(session.id.clone()).await;
+    }
 
     if !quiet && result.learnings_saved > 0 {
         eprintln!("  {} learning(s) saved", result.learnings_saved);

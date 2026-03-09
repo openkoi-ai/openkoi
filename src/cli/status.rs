@@ -74,6 +74,22 @@ pub async fn show_status(verbose: bool, costs: bool) -> anyhow::Result<()> {
                 println!("    Avg score:  {:.1}", stats.avg_score);
                 println!("    Avg iters:  {:.1}", stats.avg_iterations);
             }
+
+            // Show last session summary
+            if let Some(ref last) = stats.last_session {
+                println!();
+                println!("  Last session:");
+                println!("    ID:         {}", &last.id[..last.id.len().min(8)]);
+                println!("    Channel:    {}", last.channel);
+                println!("    Status:     {}", last.status);
+                println!("    Created:    {}", last.created_at);
+                if last.total_tokens > 0 {
+                    println!(
+                        "    Usage:      {} tokens, ${:.4}",
+                        last.total_tokens, last.total_cost_usd
+                    );
+                }
+            }
         }
     }
 
@@ -118,6 +134,16 @@ struct DbStats {
     sessions_count: i64,
     avg_score: f64,
     avg_iterations: f64,
+    last_session: Option<LastSession>,
+}
+
+struct LastSession {
+    id: String,
+    channel: String,
+    status: String,
+    created_at: String,
+    total_tokens: i64,
+    total_cost_usd: f64,
 }
 
 struct CostStats {
@@ -160,6 +186,27 @@ fn query_db_stats(db_path: &std::path::Path) -> anyhow::Result<DbStats> {
         |r| r.get(0),
     )?;
 
+    // Query last session
+    let last_session = store
+        .conn()
+        .query_row(
+            "SELECT id, channel, COALESCE(status, 'active'), created_at,
+                    COALESCE(total_tokens, 0), COALESCE(total_cost_usd, 0.0)
+             FROM sessions ORDER BY created_at DESC LIMIT 1",
+            [],
+            |r| {
+                Ok(LastSession {
+                    id: r.get(0)?,
+                    channel: r.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                    status: r.get(2)?,
+                    created_at: r.get(3)?,
+                    total_tokens: r.get(4)?,
+                    total_cost_usd: r.get(5)?,
+                })
+            },
+        )
+        .ok();
+
     Ok(DbStats {
         total_tasks,
         completed_tasks,
@@ -167,6 +214,7 @@ fn query_db_stats(db_path: &std::path::Path) -> anyhow::Result<DbStats> {
         sessions_count,
         avg_score,
         avg_iterations,
+        last_session,
     })
 }
 

@@ -1,6 +1,8 @@
 // src/memory/store_server.rs — Async message passing for Store
 
-use crate::memory::store::{LearningRow, Store, UsageEventRow, UsagePatternRow};
+use crate::memory::store::{
+    LearningRow, SessionRow, Store, TaskRow, UsageEventRow, UsagePatternRow,
+};
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug)]
@@ -124,6 +126,47 @@ pub enum StoreCommand {
         tool_name: String,
         success: bool,
         failure_reason: Option<String>,
+        resp: oneshot::Sender<anyhow::Result<()>>,
+    },
+    // -- Session lifecycle --
+    EndSession {
+        id: String,
+        resp: oneshot::Sender<anyhow::Result<()>>,
+    },
+    GetSession {
+        id: String,
+        resp: oneshot::Sender<anyhow::Result<Option<SessionRow>>>,
+    },
+    ListSessions {
+        limit: u32,
+        offset: u32,
+        resp: oneshot::Sender<anyhow::Result<Vec<SessionRow>>>,
+    },
+    CountTasksBySession {
+        session_id: String,
+        resp: oneshot::Sender<anyhow::Result<i64>>,
+    },
+    DeleteSession {
+        id: String,
+        resp: oneshot::Sender<anyhow::Result<()>>,
+    },
+    // -- Task queries --
+    GetTaskById {
+        id: String,
+        resp: oneshot::Sender<anyhow::Result<Option<TaskRow>>>,
+    },
+    ListTasksBySession {
+        session_id: String,
+        limit: u32,
+        resp: oneshot::Sender<anyhow::Result<Vec<TaskRow>>>,
+    },
+    ListRecentTasks {
+        limit: u32,
+        resp: oneshot::Sender<anyhow::Result<Vec<TaskRow>>>,
+    },
+    SetTaskOutputPath {
+        id: String,
+        output_path: String,
         resp: oneshot::Sender<anyhow::Result<()>>,
     },
 }
@@ -475,6 +518,108 @@ impl StoreHandle {
             .await?;
         resp_rx.await?
     }
+
+    // -- Session lifecycle --
+
+    pub async fn end_session(&self, id: String) -> anyhow::Result<()> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx
+            .send(StoreCommand::EndSession { id, resp: resp_tx })
+            .await?;
+        resp_rx.await?
+    }
+
+    pub async fn get_session(&self, id: String) -> anyhow::Result<Option<SessionRow>> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx
+            .send(StoreCommand::GetSession { id, resp: resp_tx })
+            .await?;
+        resp_rx.await?
+    }
+
+    pub async fn list_sessions(&self, limit: u32, offset: u32) -> anyhow::Result<Vec<SessionRow>> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx
+            .send(StoreCommand::ListSessions {
+                limit,
+                offset,
+                resp: resp_tx,
+            })
+            .await?;
+        resp_rx.await?
+    }
+
+    pub async fn count_tasks_by_session(&self, session_id: String) -> anyhow::Result<i64> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx
+            .send(StoreCommand::CountTasksBySession {
+                session_id,
+                resp: resp_tx,
+            })
+            .await?;
+        resp_rx.await?
+    }
+
+    pub async fn delete_session(&self, id: String) -> anyhow::Result<()> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx
+            .send(StoreCommand::DeleteSession { id, resp: resp_tx })
+            .await?;
+        resp_rx.await?
+    }
+
+    // -- Task queries --
+
+    pub async fn get_task_by_id(&self, id: String) -> anyhow::Result<Option<TaskRow>> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx
+            .send(StoreCommand::GetTaskById { id, resp: resp_tx })
+            .await?;
+        resp_rx.await?
+    }
+
+    pub async fn list_tasks_by_session(
+        &self,
+        session_id: String,
+        limit: u32,
+    ) -> anyhow::Result<Vec<TaskRow>> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx
+            .send(StoreCommand::ListTasksBySession {
+                session_id,
+                limit,
+                resp: resp_tx,
+            })
+            .await?;
+        resp_rx.await?
+    }
+
+    pub async fn list_recent_tasks(&self, limit: u32) -> anyhow::Result<Vec<TaskRow>> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx
+            .send(StoreCommand::ListRecentTasks {
+                limit,
+                resp: resp_tx,
+            })
+            .await?;
+        resp_rx.await?
+    }
+
+    pub async fn set_task_output_path(
+        &self,
+        id: String,
+        output_path: String,
+    ) -> anyhow::Result<()> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx
+            .send(StoreCommand::SetTaskOutputPath {
+                id,
+                output_path,
+                resp: resp_tx,
+            })
+            .await?;
+        resp_rx.await?
+    }
 }
 
 /// Helper to spawn the store server and return a handle.
@@ -699,6 +844,56 @@ pub async fn run_store_server(store: Store, mut rx: mpsc::Receiver<StoreCommand>
                 resp,
             } => {
                 let res = store.record_tool_call(&tool_name, success, failure_reason.as_deref());
+                let _ = resp.send(res);
+            }
+            // -- Session lifecycle --
+            StoreCommand::EndSession { id, resp } => {
+                let res = store.end_session(&id);
+                let _ = resp.send(res);
+            }
+            StoreCommand::GetSession { id, resp } => {
+                let res = store.get_session(&id);
+                let _ = resp.send(res);
+            }
+            StoreCommand::ListSessions {
+                limit,
+                offset,
+                resp,
+            } => {
+                let res = store.list_sessions(limit, offset);
+                let _ = resp.send(res);
+            }
+            StoreCommand::CountTasksBySession { session_id, resp } => {
+                let res = store.count_tasks_by_session(&session_id);
+                let _ = resp.send(res);
+            }
+            StoreCommand::DeleteSession { id, resp } => {
+                let res = store.delete_session(&id);
+                let _ = resp.send(res);
+            }
+            // -- Task queries --
+            StoreCommand::GetTaskById { id, resp } => {
+                let res = store.get_task_by_id(&id);
+                let _ = resp.send(res);
+            }
+            StoreCommand::ListTasksBySession {
+                session_id,
+                limit,
+                resp,
+            } => {
+                let res = store.list_tasks_by_session(&session_id, limit);
+                let _ = resp.send(res);
+            }
+            StoreCommand::ListRecentTasks { limit, resp } => {
+                let res = store.list_recent_tasks(limit);
+                let _ = resp.send(res);
+            }
+            StoreCommand::SetTaskOutputPath {
+                id,
+                output_path,
+                resp,
+            } => {
+                let res = store.set_task_output_path(&id, &output_path);
                 let _ = resp.send(res);
             }
         }

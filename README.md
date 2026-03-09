@@ -48,7 +48,7 @@ No config file needed. No setup wizard. OpenKoi detects your API keys from envir
 | You see the result | You see **how it decided**, not just what it decided |
 | You manually review every AI output | The agent evaluates its own work against rubrics |
 | You re-prompt corrections 3-5 times | Automatic iteration, stops when quality threshold is met |
-| Learnings vanish between sessions | Patterns persist locally; skills improve over time |
+| Learnings vanish between sessions | Sessions persist with transcripts; resume any chat; patterns and skills improve over time |
 | Memory is hidden | World model is inspectable: `openkoi world`, `openkoi mind` |
 | Locked to one provider | Switch providers with a flag; different models per role |
 | Data on someone else's cloud | Everything stays on your machine |
@@ -63,7 +63,9 @@ No config file needed. No setup wizard. OpenKoi detects your API keys from envir
 - **Automatic retry** — Rate limits, server errors, and timeouts are retried with exponential backoff and jitter. Context overflow is detected and handled separately.
 - **Real-time progress** — Structured progress output on stderr showing plan, iterations, scores, tool calls, and costs. Suppress with `--quiet`.
 - **Live task monitoring** — `openkoi status --live` polls the running task every second with a progress bar, score, cost, and recent history.
-- **Task state persistence** — Current task state written to `~/.openkoi/state/current-task.json`; completed tasks appended to `task-history.jsonl` with auto-rotation.
+- **Session lifecycle** — Every task and chat creates a tracked session with status (active/paused/ended), transcript, and per-task output files. Browse with `openkoi session list`, resume chats with `openkoi chat --resume <id>`.
+- **Task output persistence** — Task outputs are saved to `~/.local/share/openkoi/sessions/<session-id>/<task-id>.md`. Replay any past output with `openkoi task replay <id>`.
+- **Task state persistence** — Current task state written to `~/.openkoi/state/last-task.json`; completed tasks appended to `task-history.jsonl` with auto-rotation.
 - **HTTP API** — Localhost REST API (port 9742) for submitting tasks, querying status, and reading cost data. Optional Bearer token auth.
 - **Webhooks** — Fire HTTP callbacks on `task.complete`, `task.failed`, and `budget.warning` events.
 - **Smart truncation** — Tool outputs exceeding 2000 lines or 50KB are truncated with the full output saved to `~/.openkoi/tool-output/`.
@@ -92,6 +94,7 @@ openkoi think "task"        # EFaaS pipeline: Sovereign → Parliament → Execu
 openkoi think "task" --simulate  # Simulate futures without executing
 openkoi think "task" --verbose   # Show full parliamentary deliberation
 openkoi chat                # Interactive REPL
+openkoi chat --resume abc1  # Resume a previous chat session
 openkoi learn               # Review proposed skills (interactive picker)
 openkoi status              # Show costs, memory, active models
 openkoi status --live       # Watch the running task in real-time
@@ -99,6 +102,19 @@ openkoi setup               # First-time setup, diagnostics, provider connection
 openkoi dashboard           # TUI dashboard for tasks, costs, learnings, plugins
 openkoi disconnect          # Interactive picker: choose from connected providers
 openkoi update              # Self-update
+```
+
+### Sessions & Tasks
+
+```bash
+openkoi session list        # List recent sessions with status, cost, task count
+openkoi session show abc1   # Show session details and tasks (prefix match)
+openkoi session resume abc1 # Resume an ended chat session
+openkoi session delete abc1 # Delete a session and its data
+openkoi task list            # List recent tasks across all sessions
+openkoi task list --session abc1  # Filter tasks by session
+openkoi task show abc1       # Show task details and output preview
+openkoi task replay abc1     # Replay full task output to stdout (pipeable)
 ```
 
 ### Cognitive Commands

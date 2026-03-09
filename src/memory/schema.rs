@@ -30,6 +30,12 @@ const MIGRATIONS: &[Migration] = &[
         up: include_str!("migrations/003_mind_world_trust.up.sql"),
         down: include_str!("migrations/003_mind_world_trust.down.sql"),
     },
+    Migration {
+        version: 4,
+        name: "session_lifecycle",
+        up: include_str!("migrations/004_session_lifecycle.up.sql"),
+        down: include_str!("migrations/004_session_lifecycle.down.sql"),
+    },
 ];
 
 /// Run all pending migrations.

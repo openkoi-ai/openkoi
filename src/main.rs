@@ -3,7 +3,8 @@
 use clap::Parser;
 
 use openkoi::cli::{
-    Cli, Commands, DaemonAction, MindAction, ReflectAction, SoulAction, TrustAction, WorldAction,
+    Cli, Commands, DaemonAction, MindAction, ReflectAction, SessionAction, SoulAction, TaskAction,
+    TrustAction, WorldAction,
 };
 use openkoi::infra::config::Config;
 use openkoi::infra::logger;
@@ -190,6 +191,53 @@ async fn run() -> anyhow::Result<()> {
             return Ok(());
         }
 
+        // ── Session management (no provider needed) ──
+        Some(Commands::Session { action }) => {
+            let store = init_store_async()
+                .await
+                .ok_or_else(|| anyhow::anyhow!("Database not initialized. Run `openkoi setup`."))?;
+            match action {
+                Some(SessionAction::List { limit }) => {
+                    openkoi::cli::session::run_list(&store, *limit).await?
+                }
+                Some(SessionAction::Show { ref id }) => {
+                    openkoi::cli::session::run_show(&store, id).await?
+                }
+                Some(SessionAction::Resume { id: _ }) => {
+                    // Resume needs a provider — handled below in the provider section
+                    // Don't return — let it fall through to the provider section
+                }
+                Some(SessionAction::Delete { ref id, force }) => {
+                    openkoi::cli::session::run_delete(&store, id, *force).await?
+                }
+                None => openkoi::cli::session::run_list(&store, 20).await?,
+            }
+            // For Resume, we need to fall through — check if it was a Resume
+            if !matches!(action, Some(SessionAction::Resume { .. })) {
+                return Ok(());
+            }
+        }
+
+        // ── Task inspection (no provider needed) ──
+        Some(Commands::Task { action }) => {
+            let store = init_store_async()
+                .await
+                .ok_or_else(|| anyhow::anyhow!("Database not initialized. Run `openkoi setup`."))?;
+            match action {
+                Some(TaskAction::List { limit, ref session }) => {
+                    openkoi::cli::task::run_list(&store, *limit, session.as_deref()).await?
+                }
+                Some(TaskAction::Show { ref id }) => {
+                    openkoi::cli::task::run_show(&store, id).await?
+                }
+                Some(TaskAction::Replay { ref id }) => {
+                    openkoi::cli::task::run_replay(&store, id).await?
+                }
+                None => openkoi::cli::task::run_list(&store, 20, None).await?,
+            }
+            return Ok(());
+        }
+
         _ => {}
     }
 
@@ -328,7 +376,7 @@ async fn run() -> anyhow::Result<()> {
             mcp_manager.shutdown_all().await;
             result
         }
-        Some(Commands::Chat) => {
+        Some(Commands::Chat { ref resume }) => {
             let mcp = if mcp_manager.has_servers() {
                 Some(&mut mcp_manager)
             } else {
@@ -343,6 +391,30 @@ async fn run() -> anyhow::Result<()> {
                 mcp,
                 integrations.as_ref(),
                 cli.quiet,
+                resume.clone(),
+            )
+            .await;
+            mcp_manager.shutdown_all().await;
+            result
+        }
+        Some(Commands::Session {
+            action: Some(SessionAction::Resume { ref id }),
+        }) => {
+            let mcp = if mcp_manager.has_servers() {
+                Some(&mut mcp_manager)
+            } else {
+                None
+            };
+            let result = openkoi::cli::chat::run_chat(
+                provider,
+                &model_ref,
+                &config,
+                store.clone(),
+                all_tools,
+                mcp,
+                integrations.as_ref(),
+                cli.quiet,
+                Some(id.clone()),
             )
             .await;
             mcp_manager.shutdown_all().await;

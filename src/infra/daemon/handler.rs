@@ -9,6 +9,7 @@ use crate::core::orchestrator::{Orchestrator, SessionContext};
 use crate::core::safety::SafetyChecker;
 use crate::core::types::{IterationEngineConfig, TaskInput, TaskResult};
 use crate::infra::daemon::{status, DaemonContext};
+use crate::infra::session::Session;
 use crate::integrations::registry::IntegrationRegistry;
 use crate::integrations::types::RichMessage;
 use crate::integrations::watcher::{WatchEvent, WatchEventType};
@@ -262,7 +263,22 @@ pub async fn execute_daemon_task(
         truncate_str(task_description, 80)
     );
 
-    let task = TaskInput::new(task_description);
+    // Create a session for this daemon task
+    let session = Session::new("daemon").with_model(&ctx.model_ref.provider, &ctx.model_ref.model);
+
+    if let Some(ref s) = ctx.store {
+        let _ = s
+            .insert_session(
+                session.id.clone(),
+                session.channel.clone(),
+                session.model_provider.clone().unwrap_or_default(),
+                session.model_id.clone().unwrap_or_default(),
+            )
+            .await;
+    }
+
+    let mut task = TaskInput::new(task_description);
+    task.session_id = Some(session.id.clone());
 
     let engine_config = IterationEngineConfig::from(&ctx.config.iteration);
     let safety = SafetyChecker::from_config(&ctx.config.iteration, &ctx.config.safety);
@@ -347,6 +363,7 @@ pub async fn execute_daemon_task(
         Some(registry)
     };
 
+    let task_id = task.id.clone();
     let result = orchestrator
         .run(task, &session_ctx, None, integrations)
         .await;
@@ -358,6 +375,19 @@ pub async fn execute_daemon_task(
     }
 
     let result = result?;
+
+    // Save task output to session directory and end session
+    if let Ok(output_path) = session.save_task_output(&task_id, &result.output.content) {
+        if let Some(ref s) = ctx.store {
+            let _ = s.set_task_output_path(task_id.clone(), output_path).await;
+        }
+    }
+    if let Some(ref s) = ctx.store {
+        let _ = s
+            .update_session_totals(session.id.clone(), result.total_tokens as i64, result.cost)
+            .await;
+        let _ = s.end_session(session.id.clone()).await;
+    }
 
     // Log the usage event
     if let Some(ref s) = ctx.store {

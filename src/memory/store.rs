@@ -42,6 +42,224 @@ impl Store {
         Ok(())
     }
 
+    /// Mark a session as ended.
+    pub fn end_session(&self, id: &str) -> anyhow::Result<()> {
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "UPDATE sessions SET status = 'ended', ended_at = ?1, updated_at = ?1
+             WHERE id = ?2",
+            params![now, id],
+        )?;
+        Ok(())
+    }
+
+    /// Retrieve a session by ID.
+    pub fn get_session(&self, id: &str) -> anyhow::Result<Option<SessionRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, channel, model_provider, model_id, status, created_at,
+             updated_at, ended_at, total_tokens, total_cost_usd, transcript_path
+             FROM sessions WHERE id = ?1",
+        )?;
+
+        let mut rows = stmt.query_map(params![id], |row| {
+            Ok(SessionRow {
+                id: row.get(0)?,
+                channel: row.get(1)?,
+                model_provider: row.get(2)?,
+                model_id: row.get(3)?,
+                status: row.get(4)?,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+                ended_at: row.get(7)?,
+                total_tokens: row.get(8)?,
+                total_cost_usd: row.get(9)?,
+                transcript_path: row.get(10)?,
+            })
+        })?;
+
+        match rows.next() {
+            Some(row) => Ok(Some(row?)),
+            None => Ok(None),
+        }
+    }
+
+    /// List sessions ordered by creation time (most recent first).
+    pub fn list_sessions(&self, limit: u32, offset: u32) -> anyhow::Result<Vec<SessionRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, channel, model_provider, model_id, status, created_at,
+             updated_at, ended_at, total_tokens, total_cost_usd, transcript_path
+             FROM sessions ORDER BY created_at DESC LIMIT ?1 OFFSET ?2",
+        )?;
+
+        let rows = stmt.query_map(params![limit, offset], |row| {
+            Ok(SessionRow {
+                id: row.get(0)?,
+                channel: row.get(1)?,
+                model_provider: row.get(2)?,
+                model_id: row.get(3)?,
+                status: row.get(4)?,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+                ended_at: row.get(7)?,
+                total_tokens: row.get(8)?,
+                total_cost_usd: row.get(9)?,
+                transcript_path: row.get(10)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    /// Count tasks within a session.
+    pub fn count_tasks_by_session(&self, session_id: &str) -> anyhow::Result<i64> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM tasks WHERE session_id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    /// Delete a session and its associated tasks, cycles, and findings.
+    pub fn delete_session(&self, id: &str) -> anyhow::Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        // Delete findings for cycles belonging to tasks in this session
+        tx.execute(
+            "DELETE FROM findings WHERE cycle_id IN (
+                SELECT ic.id FROM iteration_cycles ic
+                JOIN tasks t ON ic.task_id = t.id
+                WHERE t.session_id = ?1
+            )",
+            params![id],
+        )?;
+        // Delete cycles for tasks in this session
+        tx.execute(
+            "DELETE FROM iteration_cycles WHERE task_id IN (
+                SELECT id FROM tasks WHERE session_id = ?1
+            )",
+            params![id],
+        )?;
+        // Delete tasks
+        tx.execute("DELETE FROM tasks WHERE session_id = ?1", params![id])?;
+        // Delete the session itself
+        tx.execute("DELETE FROM sessions WHERE id = ?1", params![id])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Retrieve a single task by ID.
+    pub fn get_task_by_id(&self, id: &str) -> anyhow::Result<Option<TaskRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, description, category, session_id, final_score, iterations,
+             decision, total_tokens, total_cost_usd, output_path, created_at, completed_at
+             FROM tasks WHERE id = ?1",
+        )?;
+
+        let mut rows = stmt.query_map(params![id], |row| {
+            Ok(TaskRow {
+                id: row.get(0)?,
+                description: row.get(1)?,
+                category: row.get(2)?,
+                session_id: row.get(3)?,
+                final_score: row.get(4)?,
+                iterations: row.get(5)?,
+                decision: row.get(6)?,
+                total_tokens: row.get(7)?,
+                total_cost_usd: row.get(8)?,
+                output_path: row.get(9)?,
+                created_at: row.get(10)?,
+                completed_at: row.get(11)?,
+            })
+        })?;
+
+        match rows.next() {
+            Some(row) => Ok(Some(row?)),
+            None => Ok(None),
+        }
+    }
+
+    /// List tasks belonging to a session, most recent first.
+    pub fn list_tasks_by_session(
+        &self,
+        session_id: &str,
+        limit: u32,
+    ) -> anyhow::Result<Vec<TaskRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, description, category, session_id, final_score, iterations,
+             decision, total_tokens, total_cost_usd, output_path, created_at, completed_at
+             FROM tasks WHERE session_id = ?1
+             ORDER BY created_at DESC LIMIT ?2",
+        )?;
+
+        let rows = stmt.query_map(params![session_id, limit], |row| {
+            Ok(TaskRow {
+                id: row.get(0)?,
+                description: row.get(1)?,
+                category: row.get(2)?,
+                session_id: row.get(3)?,
+                final_score: row.get(4)?,
+                iterations: row.get(5)?,
+                decision: row.get(6)?,
+                total_tokens: row.get(7)?,
+                total_cost_usd: row.get(8)?,
+                output_path: row.get(9)?,
+                created_at: row.get(10)?,
+                completed_at: row.get(11)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    /// List recent tasks across all sessions, most recent first.
+    pub fn list_recent_tasks(&self, limit: u32) -> anyhow::Result<Vec<TaskRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, description, category, session_id, final_score, iterations,
+             decision, total_tokens, total_cost_usd, output_path, created_at, completed_at
+             FROM tasks ORDER BY created_at DESC LIMIT ?1",
+        )?;
+
+        let rows = stmt.query_map(params![limit], |row| {
+            Ok(TaskRow {
+                id: row.get(0)?,
+                description: row.get(1)?,
+                category: row.get(2)?,
+                session_id: row.get(3)?,
+                final_score: row.get(4)?,
+                iterations: row.get(5)?,
+                decision: row.get(6)?,
+                total_tokens: row.get(7)?,
+                total_cost_usd: row.get(8)?,
+                output_path: row.get(9)?,
+                created_at: row.get(10)?,
+                completed_at: row.get(11)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    /// Set the output file path for a completed task.
+    pub fn set_task_output_path(&self, id: &str, output_path: &str) -> anyhow::Result<()> {
+        self.conn.execute(
+            "UPDATE tasks SET output_path = ?1 WHERE id = ?2",
+            params![output_path, id],
+        )?;
+        Ok(())
+    }
+
     // -- Tasks --
 
     pub fn insert_task(
@@ -578,6 +796,37 @@ impl Store {
 }
 
 // -- Row types --
+
+#[derive(Debug, Clone)]
+pub struct SessionRow {
+    pub id: String,
+    pub channel: String,
+    pub model_provider: String,
+    pub model_id: String,
+    pub status: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub ended_at: Option<String>,
+    pub total_tokens: i64,
+    pub total_cost_usd: f64,
+    pub transcript_path: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TaskRow {
+    pub id: String,
+    pub description: String,
+    pub category: Option<String>,
+    pub session_id: Option<String>,
+    pub final_score: Option<f64>,
+    pub iterations: Option<i32>,
+    pub decision: Option<String>,
+    pub total_tokens: Option<i64>,
+    pub total_cost_usd: Option<f64>,
+    pub output_path: Option<String>,
+    pub created_at: String,
+    pub completed_at: Option<String>,
+}
 
 #[derive(Debug, Clone)]
 pub struct LearningRow {

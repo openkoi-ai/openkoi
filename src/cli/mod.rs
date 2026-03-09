@@ -10,8 +10,10 @@ pub mod mind;
 pub mod progress;
 pub mod reflect;
 pub mod run;
+pub mod session;
 pub mod soul;
 pub mod status;
+pub mod task;
 pub mod think;
 pub mod trust;
 pub mod update;
@@ -73,7 +75,11 @@ pub enum Commands {
         verbose: bool,
     },
     /// Interactive chat session
-    Chat,
+    Chat {
+        /// Resume a previous session by ID (prefix match supported)
+        #[arg(long)]
+        resume: Option<String>,
+    },
     /// Review learned patterns and proposed skills
     Learn {
         #[command(subcommand)]
@@ -141,6 +147,18 @@ pub enum Commands {
     Soul {
         #[command(subcommand)]
         action: Option<SoulAction>,
+    },
+
+    /// Manage sessions: list, show, resume, delete
+    Session {
+        #[command(subcommand)]
+        action: Option<SessionAction>,
+    },
+
+    /// Inspect task history and outputs
+    Task {
+        #[command(subcommand)]
+        action: Option<TaskAction>,
     },
 
     /// Self-update to the latest release
@@ -285,4 +303,55 @@ pub enum SoulAction {
     History,
     /// Trigger soul evolution check (requires LLM provider)
     Evolve,
+}
+
+#[derive(Subcommand, Clone)]
+pub enum SessionAction {
+    /// List recent sessions
+    List {
+        /// Max sessions to show
+        #[arg(short = 'n', long, default_value = "20")]
+        limit: u32,
+    },
+    /// Show details of a session
+    Show {
+        /// Session ID (prefix match supported)
+        id: String,
+    },
+    /// Resume an ended chat session
+    Resume {
+        /// Session ID (prefix match supported)
+        id: String,
+    },
+    /// Delete a session and its data
+    Delete {
+        /// Session ID (prefix match supported)
+        id: String,
+        /// Skip confirmation prompt
+        #[arg(long)]
+        force: bool,
+    },
+}
+
+#[derive(Subcommand, Clone)]
+pub enum TaskAction {
+    /// List recent tasks
+    List {
+        /// Max tasks to show
+        #[arg(short = 'n', long, default_value = "20")]
+        limit: u32,
+        /// Filter by session ID
+        #[arg(long)]
+        session: Option<String>,
+    },
+    /// Show task details and output
+    Show {
+        /// Task ID (prefix match supported)
+        id: String,
+    },
+    /// Replay task output to stdout
+    Replay {
+        /// Task ID (prefix match supported)
+        id: String,
+    },
 }

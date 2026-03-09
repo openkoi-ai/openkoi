@@ -6,6 +6,7 @@ use crate::core::orchestrator::{Orchestrator, SessionContext};
 use crate::core::safety::SafetyChecker;
 use crate::core::types::{IterationEngineConfig, TaskInput};
 use crate::infra::config::Config;
+use crate::infra::session::{Session, SessionStatus, TranscriptEntry};
 use crate::integrations::registry::IntegrationRegistry;
 use crate::learner::skill_selector::SkillSelector;
 use crate::memory::recall::{self, HistoryRecall};
@@ -14,10 +15,11 @@ use crate::provider::roles::ModelRoles;
 use crate::provider::{ModelProvider, ModelRef, ToolDef};
 use crate::skills::registry::SkillRegistry;
 use crate::soul::loader;
-use chrono::{Datelike, Timelike};
+use chrono::{Datelike, Timelike, Utc};
 
 /// Mutable session state that slash commands can modify.
 struct ChatState {
+    session: Session,
     model_ref: ModelRef,
     max_iterations: u8,
     quality_threshold: f32,
@@ -50,6 +52,7 @@ pub async fn run_chat(
     mcp_manager: Option<&mut McpManager>,
     integrations: Option<&IntegrationRegistry>,
     quiet: bool,
+    resume_session_id: Option<String>,
 ) -> anyhow::Result<()> {
     let memory_count = if let Some(ref s) = store {
         s.count_learnings().await.unwrap_or(0)
@@ -69,7 +72,85 @@ pub async fn run_chat(
     let skill_registry = Arc::new(SkillRegistry::new());
     let selector = SkillSelector::new();
 
+    // Create or resume a persistent session
+    let (session, initial_summary) = if let Some(ref resume_id) = resume_session_id {
+        // Resolve the session from the DB
+        let resolved = if let Some(ref s) = store {
+            // Try exact match first, then prefix
+            let exact = s.get_session(resume_id.clone()).await?;
+            if let Some(row) = exact {
+                Some(row)
+            } else {
+                let all = s.list_sessions(1000, 0).await?;
+                let matches: Vec<_> = all
+                    .into_iter()
+                    .filter(|r| r.id.starts_with(resume_id.as_str()))
+                    .collect();
+                match matches.len() {
+                    0 => None,
+                    1 => Some(matches.into_iter().next().unwrap()),
+                    n => {
+                        eprintln!("Ambiguous prefix '{}' matches {} sessions:", resume_id, n);
+                        for m in &matches[..n.min(5)] {
+                            eprintln!("  {} ({})", &m.id[..m.id.len().min(12)], m.channel);
+                        }
+                        anyhow::bail!("Provide a longer prefix to disambiguate");
+                    }
+                }
+            }
+        } else {
+            None
+        };
+
+        let row =
+            resolved.ok_or_else(|| anyhow::anyhow!("No session found matching '{}'", resume_id))?;
+
+        // Reconstruct a Session struct from the DB row
+        let mut sess = Session::new("chat").with_model(&row.model_provider, &row.model_id);
+        sess.id = row.id.clone();
+        // Mark as active again
+        sess.status = SessionStatus::Active;
+
+        // Build resume context from transcript
+        let (summary, recent) = sess.build_resume_context(10, 6000)?;
+        let mut full_summary = summary;
+        // Append recent raw entries to the summary so the LLM sees them verbatim
+        for entry in &recent {
+            let role_tag = match entry.role.as_str() {
+                "user" => "Human",
+                "assistant" => "Assistant",
+                _ => &entry.role,
+            };
+            full_summary.push_str(&format!("{}: {}\n\n", role_tag, entry.content));
+        }
+
+        eprintln!(
+            "Resuming session {} ({} transcript entries loaded)",
+            &row.id[..row.id.len().min(8)],
+            recent.len(),
+        );
+
+        (sess, full_summary)
+    } else {
+        let session = Session::new("chat").with_model(&model_ref.provider, &model_ref.model);
+
+        // Persist session to DB
+        if let Some(ref s) = store {
+            let _ = s
+                .insert_session(
+                    session.id.clone(),
+                    session.channel.clone(),
+                    session.model_provider.clone().unwrap_or_default(),
+                    session.model_id.clone().unwrap_or_default(),
+                )
+                .await;
+        }
+
+        (session, String::new())
+    };
+
     let mut state = ChatState {
+        session,
         model_ref: model_ref.clone(),
         max_iterations: config.iteration.max_iterations,
         quality_threshold: config.iteration.quality_threshold,
@@ -77,7 +158,7 @@ pub async fn run_chat(
         total_tokens: 0,
         task_count: 0,
         history: Vec::new(),
-        conversation_summary: String::new(),
+        conversation_summary: initial_summary,
     };
 
     // We need to reborrow mcp_manager across loop iterations.
@@ -103,7 +184,8 @@ pub async fn run_chat(
         }
 
         // Build per-task context
-        let task = TaskInput::new(trimmed);
+        let mut task = TaskInput::new(trimmed);
+        task.session_id = Some(state.session.id.clone());
         let mut engine_config = IterationEngineConfig::from(&config.iteration);
         engine_config.max_iterations = state.max_iterations;
         engine_config.quality_threshold = state.quality_threshold;
@@ -170,6 +252,7 @@ pub async fn run_chat(
         }
 
         let mcp_ref = mcp.as_deref_mut();
+        let task_id = task.id.clone();
 
         match orchestrator.run(task, &ctx, mcp_ref, integrations).await {
             Ok(result) => {
@@ -184,6 +267,39 @@ pub async fn run_chat(
                     cost: result.cost,
                     score: result.final_score,
                 });
+
+                // Append transcript entries for this exchange
+                let _ = state.session.append_transcript(&TranscriptEntry {
+                    role: "user".to_string(),
+                    content: trimmed.to_string(),
+                    timestamp: Utc::now(),
+                });
+                let _ = state.session.append_transcript(&TranscriptEntry {
+                    role: "assistant".to_string(),
+                    content: result.output.content.clone(),
+                    timestamp: Utc::now(),
+                });
+
+                // Save task output to session directory
+                if let Ok(output_path) = state
+                    .session
+                    .save_task_output(&task_id, &result.output.content)
+                {
+                    if let Some(ref s) = store {
+                        let _ = s.set_task_output_path(task_id.clone(), output_path).await;
+                    }
+                }
+
+                // Update session totals in DB
+                if let Some(ref s) = store {
+                    let _ = s
+                        .update_session_totals(
+                            state.session.id.clone(),
+                            result.total_tokens as i64,
+                            result.cost,
+                        )
+                        .await;
+                }
 
                 // Accumulate conversation history for cross-message context.
                 // Truncate the response to keep the summary compact.
@@ -240,9 +356,17 @@ pub async fn run_chat(
         }
     }
 
+    // End the session
+    if let Some(ref s) = store {
+        let _ = s.end_session(state.session.id.clone()).await;
+    }
+
     eprintln!(
-        "\nSession total: {} task(s), {} tokens, ${:.2}",
-        state.task_count, state.total_tokens, state.total_cost,
+        "\nSession {} | {} task(s), {} tokens, ${:.2}",
+        &state.session.id[..8],
+        state.task_count,
+        state.total_tokens,
+        state.total_cost,
     );
     Ok(())
 }

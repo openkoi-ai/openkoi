@@ -128,7 +128,7 @@ fn export_learnings(conn: &rusqlite::Connection) -> anyhow::Result<serde_json::V
 fn export_sessions(conn: &rusqlite::Connection) -> anyhow::Result<serde_json::Value> {
     let mut stmt = conn.prepare(
         "SELECT id, channel, model_provider, model_id, created_at, updated_at,
-                total_tokens, total_cost_usd
+                total_tokens, total_cost_usd, status, ended_at
          FROM sessions ORDER BY created_at DESC",
     )?;
 
@@ -142,6 +142,8 @@ fn export_sessions(conn: &rusqlite::Connection) -> anyhow::Result<serde_json::Va
             "updated_at": row.get::<_, String>(5)?,
             "total_tokens": row.get::<_, i64>(6)?,
             "total_cost_usd": row.get::<_, f64>(7)?,
+            "status": row.get::<_, Option<String>>(8)?,
+            "ended_at": row.get::<_, Option<String>>(9)?,
         }))
     })?;
 

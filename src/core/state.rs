@@ -187,9 +187,10 @@ pub fn state_writer_progress(
                     };
                     let _ = append_history(&entry);
 
-                    // Remove current-task.json on completion
+                    // Rename current-task.json to last-task.json for post-mortem access
                     let state_file = state_file_path();
-                    let _ = std::fs::remove_file(state_file);
+                    let last_file = last_task_file_path();
+                    let _ = std::fs::rename(&state_file, &last_file);
                     return;
                 }
             }
@@ -206,6 +207,18 @@ pub fn state_writer_progress(
 /// Path to `current-task.json`.
 pub fn state_file_path() -> PathBuf {
     paths::state_dir().join("current-task.json")
+}
+
+/// Path to `last-task.json` (preserved after completion for post-mortem).
+pub fn last_task_file_path() -> PathBuf {
+    paths::state_dir().join("last-task.json")
+}
+
+/// Read the last completed task state from `last-task.json`, if it exists.
+pub fn read_last_task() -> Option<TaskState> {
+    let path = last_task_file_path();
+    let content = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&content).ok()
 }
 
 /// Path to `task-history.jsonl`.
