@@ -7,7 +7,7 @@ use std::time::Duration;
 use crate::api::webhooks;
 use crate::core::orchestrator::{Orchestrator, SessionContext};
 use crate::core::safety::SafetyChecker;
-use crate::core::types::{IterationEngineConfig, TaskInput, TaskResult};
+use crate::core::types::{TaskInput, TaskResult};
 use crate::infra::daemon::{status, DaemonContext};
 use crate::infra::session::Session;
 use crate::integrations::registry::IntegrationRegistry;
@@ -205,7 +205,7 @@ pub async fn handle_watch_event(
                             webhooks::fire_webhook(
                                 webhook_config,
                                 webhooks::WebhookEvent::TaskComplete {
-                                    task_id: uuid::Uuid::new_v4().to_string(),
+                                    task_id: crate::util::new_id(),
                                     description: task_description.clone(),
                                     iterations: task_result.iterations,
                                     final_score: task_result.final_score,
@@ -238,7 +238,7 @@ pub async fn handle_watch_event(
                             webhooks::fire_webhook(
                                 webhook_config,
                                 webhooks::WebhookEvent::TaskFailed {
-                                    task_id: uuid::Uuid::new_v4().to_string(),
+                                    task_id: crate::util::new_id(),
                                     description: task_description.clone(),
                                     error: format!("{e}"),
                                 },
@@ -280,7 +280,7 @@ pub async fn execute_daemon_task(
     let mut task = TaskInput::new(task_description);
     task.session_id = Some(session.id.clone());
 
-    let engine_config = IterationEngineConfig::from(&ctx.config.iteration);
+    let engine_config = ctx.config.iteration.clone();
     let safety = SafetyChecker::from_config(&ctx.config.iteration, &ctx.config.safety);
 
     // Load soul
@@ -394,7 +394,7 @@ pub async fn execute_daemon_task(
         use chrono::{Datelike, Timelike};
         let _ = s
             .insert_usage_event(
-                uuid::Uuid::new_v4().to_string(),
+                crate::util::new_id(),
                 "task".to_string(),
                 Some("daemon".to_string()),
                 Some(task_description.to_string()),

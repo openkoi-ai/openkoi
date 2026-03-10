@@ -11,6 +11,7 @@ use super::token_budget::TokenBudget;
 use super::token_optimizer::TokenOptimizer;
 use super::types::*;
 use crate::evaluator::EvaluatorFramework;
+use crate::infra::config::IterationConfig;
 use crate::integrations::registry::IntegrationRegistry;
 use crate::learner::extractor::LearningExtractor;
 use crate::learner::types::RankedSkill;
@@ -31,7 +32,7 @@ pub struct Orchestrator {
     eval_cache: EvalCache,
     safety: SafetyChecker,
     cost_tracker: CostTracker,
-    config: IterationEngineConfig,
+        config: IterationConfig,
     /// The model's context window size in tokens (0 = unknown, skip safe-context checks).
     context_window: u32,
     /// Actual model IDs for cost tracking (from ModelRoles).
@@ -63,7 +64,7 @@ impl Orchestrator {
     pub fn new(
         provider: Arc<dyn ModelProvider>,
         roles: ModelRoles,
-        config: IterationEngineConfig,
+    config: IterationConfig,
         safety: SafetyChecker,
         skill_registry: Arc<SkillRegistry>,
         store: Option<StoreHandle>,
@@ -83,9 +84,9 @@ impl Orchestrator {
         Self {
             executor: Executor::new(provider.clone(), executor_model_id.clone())
                 .with_tool_loop_thresholds(
-                    safety.tool_loop_warning,
-                    safety.tool_loop_critical,
-                    safety.tool_loop_circuit_breaker,
+                    safety.safety.tool_loop.warning,
+                    safety.safety.tool_loop.critical,
+                    safety.safety.tool_loop.circuit_breaker,
                 ),
             evaluator: EvaluatorFramework::new(
                 skill_registry,
@@ -133,7 +134,7 @@ impl Orchestrator {
     async fn persist_cycle(&self, task_id: &str, cycle: &IterationCycle, iteration: usize) {
         let Some(ref store) = self.store else { return };
 
-        let cycle_id = uuid::Uuid::new_v4().to_string();
+        let cycle_id = crate::util::new_id();
         let usage = cycle.output.as_ref().map(|o| &o.usage);
         let _ = store
             .insert_cycle(
@@ -151,7 +152,7 @@ impl Orchestrator {
         // Persist findings
         if let Some(ref eval) = cycle.evaluation {
             for finding in &eval.findings {
-                let finding_id = uuid::Uuid::new_v4().to_string();
+                let finding_id = crate::util::new_id();
                 let _ = store
                     .insert_finding(
                         finding_id,
@@ -471,7 +472,7 @@ impl Orchestrator {
         if !learnings.is_empty() {
             if let Some(ref store) = self.store {
                 for learning in &learnings {
-                    let learning_id = uuid::Uuid::new_v4().to_string();
+                    let learning_id = crate::util::new_id();
                     if store
                         .insert_learning(
                             learning_id,

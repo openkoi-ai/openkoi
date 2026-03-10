@@ -8,7 +8,7 @@ use std::sync::Arc;
 use crate::core::orchestrator::{Orchestrator, SessionContext};
 use crate::core::parliament::{Deliberation, Parliament};
 use crate::core::safety::SafetyChecker;
-use crate::core::types::{IterationEngineConfig, TaskInput};
+use crate::core::types::{TaskInput};
 use crate::infra::config::Config;
 use crate::integrations::registry::IntegrationRegistry;
 use crate::learner::skill_selector::SkillSelector;
@@ -45,7 +45,7 @@ pub async fn run_think(
 ) -> anyhow::Result<()> {
     let task = TaskInput::new(task_description);
 
-    let mut engine_config = IterationEngineConfig::from(&config.iteration);
+    let mut engine_config = config.iteration.clone();
     engine_config.max_iterations = max_iterations;
     engine_config.quality_threshold = quality_threshold;
 
@@ -58,7 +58,7 @@ pub async fn run_think(
     // Apply --time override: parse duration string and cap timeout
     if let Some(ref t) = time {
         if let Some(secs) = parse_duration_str(t) {
-            engine_config.timeout = std::time::Duration::from_secs(secs);
+            engine_config.timeout_seconds = secs;
             eprintln!("  ⏱️  Time limit: {}", t);
         } else {
             eprintln!("  ⚠️  Could not parse --time \"{}\". Expected format: 30s, 5m, 1h", t);
@@ -138,7 +138,7 @@ pub async fn run_think(
 
     // Apply --budget override to safety checker
     if let Some(b) = budget {
-        safety.max_cost_usd = b;
+        safety.safety.max_cost_usd = b;
     }
 
     // Apply --time override to safety checker
@@ -238,7 +238,7 @@ pub async fn run_think(
     if let Some(ref s) = store {
         let _ = s
             .insert_usage_event(
-                uuid::Uuid::new_v4().to_string(),
+                crate::util::new_id(),
                 "think".to_string(),
                 Some("cli".to_string()),
                 Some(task_description.to_string()),

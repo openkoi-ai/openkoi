@@ -108,6 +108,14 @@ pub fn format_timestamp(ts: &str) -> String {
         .unwrap_or_else(|_| ts[..ts.len().min(19)].to_string())
 }
 
+/// Generate a new random UUID v4 as a `String`.
+///
+/// Single point of ID generation — makes it trivial to change the
+/// scheme (e.g. to ULIDs) across the entire codebase.
+pub fn new_id() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -26,7 +26,7 @@ pub struct IterationCycle {
 impl IterationCycle {
     pub fn new(task: &TaskInput, iteration: u8) -> Self {
         Self {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: crate::util::new_id(),
             task_id: task.id.clone(),
             iteration,
             phase: Phase::Execute,
@@ -110,7 +110,7 @@ pub struct TaskInput {
 impl TaskInput {
     pub fn new(description: impl Into<String>) -> Self {
         Self {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: crate::util::new_id(),
             description: description.into(),
             category: None,
             context: None,
@@ -244,42 +244,8 @@ pub struct ExecutionContext {
     pub token_estimate: u32,
 }
 
-/// Configuration for the iteration engine.
-#[derive(Debug, Clone)]
-pub struct IterationEngineConfig {
-    pub max_iterations: u8,
-    pub quality_threshold: f32,
-    pub improvement_threshold: f32,
-    pub timeout: Duration,
-    pub token_budget: u32,
-    pub skip_eval_confidence: f32,
-}
-
-impl Default for IterationEngineConfig {
-    fn default() -> Self {
-        Self {
-            max_iterations: 3,
-            quality_threshold: 0.8,
-            improvement_threshold: 0.05,
-            timeout: Duration::from_secs(300),
-            token_budget: 200_000,
-            skip_eval_confidence: 0.95,
-        }
-    }
-}
-
-impl From<&crate::infra::config::IterationConfig> for IterationEngineConfig {
-    fn from(cfg: &crate::infra::config::IterationConfig) -> Self {
-        Self {
-            max_iterations: cfg.max_iterations,
-            quality_threshold: cfg.quality_threshold,
-            improvement_threshold: cfg.improvement_threshold,
-            timeout: Duration::from_secs(cfg.timeout_seconds),
-            token_budget: cfg.token_budget,
-            skip_eval_confidence: cfg.skip_eval_confidence,
-        }
-    }
-}
+// IterationEngineConfig eliminated — use crate::infra::config::IterationConfig directly.
+// See IterationConfig::timeout() for the Duration conversion.
 
 #[cfg(test)]
 mod tests {
@@ -401,34 +367,25 @@ mod tests {
         );
     }
 
-    // ─── IterationEngineConfig ──────────────────────────────────
+    // ─── IterationConfig ─────────────────────────────────────────
 
     #[test]
-    fn test_engine_config_defaults() {
-        let cfg = IterationEngineConfig::default();
+    fn test_iteration_config_defaults() {
+        let cfg = crate::infra::config::IterationConfig::default();
         assert_eq!(cfg.max_iterations, 3);
         assert!((cfg.quality_threshold - 0.8).abs() < f32::EPSILON);
         assert!((cfg.improvement_threshold - 0.05).abs() < f32::EPSILON);
-        assert_eq!(cfg.timeout, Duration::from_secs(300));
+        assert_eq!(cfg.timeout_seconds, 300);
+        assert_eq!(cfg.timeout(), Duration::from_secs(300));
         assert_eq!(cfg.token_budget, 200_000);
         assert!((cfg.skip_eval_confidence - 0.95).abs() < f32::EPSILON);
     }
 
     #[test]
-    fn test_engine_config_from_iteration_config() {
-        let iter_cfg = crate::infra::config::IterationConfig {
-            max_iterations: 5,
-            quality_threshold: 0.9,
-            improvement_threshold: 0.1,
-            timeout_seconds: 600,
-            token_budget: 100_000,
-            skip_eval_confidence: 0.99,
-        };
-        let cfg = IterationEngineConfig::from(&iter_cfg);
-        assert_eq!(cfg.max_iterations, 5);
-        assert!((cfg.quality_threshold - 0.9).abs() < f32::EPSILON);
-        assert_eq!(cfg.timeout, Duration::from_secs(600));
-        assert_eq!(cfg.token_budget, 100_000);
+    fn test_iteration_config_timeout_conversion() {
+        let mut cfg = crate::infra::config::IterationConfig::default();
+        cfg.timeout_seconds = 600;
+        assert_eq!(cfg.timeout(), Duration::from_secs(600));
     }
 
     // ─── Plan ───────────────────────────────────────────────────

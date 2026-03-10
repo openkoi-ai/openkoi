@@ -330,7 +330,7 @@ impl Store {
         human_override: bool,
         override_reason: Option<&str>,
     ) -> anyhow::Result<()> {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = crate::util::new_id();
         let now = chrono::Utc::now().to_rfc3339();
 
         self.conn().execute(

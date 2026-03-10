@@ -8,7 +8,7 @@ use std::pin::Pin;
 
 use openkoi::core::orchestrator::{Orchestrator, SessionContext};
 use openkoi::core::safety::SafetyChecker;
-use openkoi::core::types::{IterationEngineConfig, TaskInput};
+use openkoi::core::types::{TaskInput};
 use openkoi::infra::config::{IterationConfig, SafetyConfig};
 use openkoi::memory::recall::HistoryRecall;
 use openkoi::provider::roles::ModelRoles;
@@ -110,7 +110,7 @@ fn default_session_context() -> SessionContext {
 async fn test_orchestrator_single_iteration_accept() {
     let provider: Arc<dyn ModelProvider> = Arc::new(MockProvider::new("Hello, world!"));
 
-    let config = IterationEngineConfig {
+    let config = IterationConfig {
         max_iterations: 1,
         quality_threshold: 0.8,
         ..Default::default()
@@ -142,7 +142,7 @@ async fn test_orchestrator_single_iteration_accept() {
 async fn test_orchestrator_multiple_iterations() {
     let provider: Arc<dyn ModelProvider> = Arc::new(MockProvider::new("Improved output"));
 
-    let config = IterationEngineConfig {
+    let config = IterationConfig {
         max_iterations: 3,
         quality_threshold: 0.99, // Never satisfied — forces all 3 iterations
         ..Default::default()
@@ -180,7 +180,7 @@ async fn test_orchestrator_multiple_iterations() {
 async fn test_orchestrator_with_tools_defined() {
     let provider: Arc<dyn ModelProvider> = Arc::new(MockProvider::new("Used a tool conceptually"));
 
-    let config = IterationEngineConfig::default();
+    let config = IterationConfig::default();
     let safety = SafetyChecker::from_config(&IterationConfig::default(), &SafetyConfig::default());
 
     let mut orchestrator = Orchestrator::new(
@@ -211,7 +211,7 @@ async fn test_orchestrator_with_tools_defined() {
 async fn test_orchestrator_result_includes_skills_used() {
     let provider: Arc<dyn ModelProvider> = Arc::new(MockProvider::new("Done"));
 
-    let config = IterationEngineConfig {
+    let config = IterationConfig {
         max_iterations: 1,
         ..Default::default()
     };

@@ -61,21 +61,7 @@ impl Store {
              FROM sessions WHERE id = ?1",
         )?;
 
-        let mut rows = stmt.query_map(params![id], |row| {
-            Ok(SessionRow {
-                id: row.get(0)?,
-                channel: row.get(1)?,
-                model_provider: row.get(2)?,
-                model_id: row.get(3)?,
-                status: row.get(4)?,
-                created_at: row.get(5)?,
-                updated_at: row.get(6)?,
-                ended_at: row.get(7)?,
-                total_tokens: row.get(8)?,
-                total_cost_usd: row.get(9)?,
-                transcript_path: row.get(10)?,
-            })
-        })?;
+        let mut rows = stmt.query_map(params![id], SessionRow::from_row)?;
 
         match rows.next() {
             Some(row) => Ok(Some(row?)),
@@ -91,21 +77,7 @@ impl Store {
              FROM sessions ORDER BY created_at DESC LIMIT ?1 OFFSET ?2",
         )?;
 
-        let rows = stmt.query_map(params![limit, offset], |row| {
-            Ok(SessionRow {
-                id: row.get(0)?,
-                channel: row.get(1)?,
-                model_provider: row.get(2)?,
-                model_id: row.get(3)?,
-                status: row.get(4)?,
-                created_at: row.get(5)?,
-                updated_at: row.get(6)?,
-                ended_at: row.get(7)?,
-                total_tokens: row.get(8)?,
-                total_cost_usd: row.get(9)?,
-                transcript_path: row.get(10)?,
-            })
-        })?;
+        let rows = stmt.query_map(params![limit, offset], SessionRow::from_row)?;
 
         let mut result = Vec::new();
         for row in rows {
@@ -159,22 +131,7 @@ impl Store {
              FROM tasks WHERE id = ?1",
         )?;
 
-        let mut rows = stmt.query_map(params![id], |row| {
-            Ok(TaskRow {
-                id: row.get(0)?,
-                description: row.get(1)?,
-                category: row.get(2)?,
-                session_id: row.get(3)?,
-                final_score: row.get(4)?,
-                iterations: row.get(5)?,
-                decision: row.get(6)?,
-                total_tokens: row.get(7)?,
-                total_cost_usd: row.get(8)?,
-                output_path: row.get(9)?,
-                created_at: row.get(10)?,
-                completed_at: row.get(11)?,
-            })
-        })?;
+        let mut rows = stmt.query_map(params![id], TaskRow::from_row)?;
 
         match rows.next() {
             Some(row) => Ok(Some(row?)),
@@ -195,22 +152,7 @@ impl Store {
              ORDER BY created_at DESC LIMIT ?2",
         )?;
 
-        let rows = stmt.query_map(params![session_id, limit], |row| {
-            Ok(TaskRow {
-                id: row.get(0)?,
-                description: row.get(1)?,
-                category: row.get(2)?,
-                session_id: row.get(3)?,
-                final_score: row.get(4)?,
-                iterations: row.get(5)?,
-                decision: row.get(6)?,
-                total_tokens: row.get(7)?,
-                total_cost_usd: row.get(8)?,
-                output_path: row.get(9)?,
-                created_at: row.get(10)?,
-                completed_at: row.get(11)?,
-            })
-        })?;
+        let rows = stmt.query_map(params![session_id, limit], TaskRow::from_row)?;
 
         let mut result = Vec::new();
         for row in rows {
@@ -227,22 +169,7 @@ impl Store {
              FROM tasks ORDER BY created_at DESC LIMIT ?1",
         )?;
 
-        let rows = stmt.query_map(params![limit], |row| {
-            Ok(TaskRow {
-                id: row.get(0)?,
-                description: row.get(1)?,
-                category: row.get(2)?,
-                session_id: row.get(3)?,
-                final_score: row.get(4)?,
-                iterations: row.get(5)?,
-                decision: row.get(6)?,
-                total_tokens: row.get(7)?,
-                total_cost_usd: row.get(8)?,
-                output_path: row.get(9)?,
-                created_at: row.get(10)?,
-                completed_at: row.get(11)?,
-            })
-        })?;
+        let rows = stmt.query_map(params![limit], TaskRow::from_row)?;
 
         let mut result = Vec::new();
         for row in rows {
@@ -422,17 +349,7 @@ impl Store {
         )?;
 
         let rows = stmt.query_map(params![learning_type, limit], |row| {
-            Ok(LearningRow {
-                id: row.get(0)?,
-                learning_type: row.get(1)?,
-                content: row.get(2)?,
-                category: row.get(3)?,
-                confidence: row.get(4)?,
-                source_task: row.get(5)?,
-                reinforced: row.get(6)?,
-                last_used: row.get(7)?,
-                created_at: row.get::<_, String>(8).unwrap_or_default(),
-            })
+            LearningRow::from_row(row)
         })?;
 
         let mut result = Vec::new();
@@ -448,19 +365,7 @@ impl Store {
              FROM learnings ORDER BY created_at DESC",
         )?;
 
-        let rows = stmt.query_map([], |row| {
-            Ok(LearningRow {
-                id: row.get(0)?,
-                content: row.get(2)?,
-                learning_type: row.get(1)?,
-                category: row.get(3)?,
-                confidence: row.get(4)?,
-                source_task: row.get(5)?,
-                reinforced: row.get(6)?,
-                last_used: row.get(7)?,
-                created_at: row.get::<_, String>(8).unwrap_or_default(),
-            })
-        })?;
+        let rows = stmt.query_map([], |row| LearningRow::from_row(row))?;
 
         let mut result = Vec::new();
         for row in rows {
@@ -481,17 +386,7 @@ impl Store {
         )?;
 
         let rows = stmt.query_map(params![min_confidence, limit], |row| {
-            Ok(LearningRow {
-                id: row.get(0)?,
-                learning_type: row.get(1)?,
-                content: row.get(2)?,
-                category: row.get(3)?,
-                confidence: row.get(4)?,
-                source_task: row.get(5)?,
-                reinforced: row.get(6)?,
-                last_used: row.get(7)?,
-                created_at: row.get::<_, String>(8).unwrap_or_default(),
-            })
+            LearningRow::from_row(row)
         })?;
 
         let mut result = Vec::new();
@@ -740,20 +635,7 @@ impl Store {
              ORDER BY confidence DESC",
         )?;
 
-        let rows = stmt.query_map([], |row| {
-            Ok(UsagePatternRow {
-                id: row.get(0)?,
-                pattern_type: row.get(1)?,
-                description: row.get(2)?,
-                frequency: row.get(3)?,
-                confidence: row.get(4)?,
-                sample_count: row.get(5)?,
-                first_seen: row.get(6)?,
-                last_seen: row.get(7)?,
-                proposed_skill: row.get(8)?,
-                status: row.get(9)?,
-            })
-        })?;
+        let rows = stmt.query_map([], |row| UsagePatternRow::from_row(row))?;
 
         let mut result = Vec::new();
         for row in rows {
@@ -770,20 +652,7 @@ impl Store {
              ORDER BY confidence DESC",
         )?;
 
-        let rows = stmt.query_map([], |row| {
-            Ok(UsagePatternRow {
-                id: row.get(0)?,
-                pattern_type: row.get(1)?,
-                description: row.get(2)?,
-                frequency: row.get(3)?,
-                confidence: row.get(4)?,
-                sample_count: row.get(5)?,
-                first_seen: row.get(6)?,
-                last_seen: row.get(7)?,
-                proposed_skill: row.get(8)?,
-                status: row.get(9)?,
-            })
-        })?;
+        let rows = stmt.query_map([], |row| UsagePatternRow::from_row(row))?;
 
         let mut result = Vec::new();
         for row in rows {
@@ -815,6 +684,28 @@ pub struct SessionRow {
     pub transcript_path: Option<String>,
 }
 
+impl SessionRow {
+    /// Map a `rusqlite::Row` into a `SessionRow`.
+    ///
+    /// Column order must match: id, channel, model_provider, model_id, status,
+    /// created_at, updated_at, ended_at, total_tokens, total_cost_usd, transcript_path
+    fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
+        Ok(Self {
+            id: row.get(0)?,
+            channel: row.get(1)?,
+            model_provider: row.get(2)?,
+            model_id: row.get(3)?,
+            status: row.get(4)?,
+            created_at: row.get(5)?,
+            updated_at: row.get(6)?,
+            ended_at: row.get(7)?,
+            total_tokens: row.get(8)?,
+            total_cost_usd: row.get(9)?,
+            transcript_path: row.get(10)?,
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TaskRow {
     pub id: String,
@@ -831,6 +722,29 @@ pub struct TaskRow {
     pub completed_at: Option<String>,
 }
 
+impl TaskRow {
+    /// Map a `rusqlite::Row` into a `TaskRow`.
+    ///
+    /// Column order must match: id, description, category, session_id, final_score,
+    /// iterations, decision, total_tokens, total_cost_usd, output_path, created_at, completed_at
+    fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
+        Ok(Self {
+            id: row.get(0)?,
+            description: row.get(1)?,
+            category: row.get(2)?,
+            session_id: row.get(3)?,
+            final_score: row.get(4)?,
+            iterations: row.get(5)?,
+            decision: row.get(6)?,
+            total_tokens: row.get(7)?,
+            total_cost_usd: row.get(8)?,
+            output_path: row.get(9)?,
+            created_at: row.get(10)?,
+            completed_at: row.get(11)?,
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct LearningRow {
     pub id: String,
@@ -842,6 +756,26 @@ pub struct LearningRow {
     pub reinforced: i32,
     pub last_used: Option<String>,
     pub created_at: String,
+}
+
+impl LearningRow {
+    /// Map a `rusqlite::Row` into a `LearningRow`.
+    ///
+    /// Column order must match: id, type, content, category, confidence,
+    /// source_task, reinforced, last_used, created_at
+    fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
+        Ok(Self {
+            id: row.get(0)?,
+            learning_type: row.get(1)?,
+            content: row.get(2)?,
+            category: row.get(3)?,
+            confidence: row.get(4)?,
+            source_task: row.get(5)?,
+            reinforced: row.get(6)?,
+            last_used: row.get(7)?,
+            created_at: row.get::<_, String>(8).unwrap_or_default(),
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -879,4 +813,25 @@ pub struct UsagePatternRow {
     pub last_seen: String,
     pub proposed_skill: Option<String>,
     pub status: Option<String>,
+}
+
+impl UsagePatternRow {
+    /// Map a `rusqlite::Row` into a `UsagePatternRow`.
+    ///
+    /// Column order must match: id, pattern_type, description, frequency,
+    /// confidence, sample_count, first_seen, last_seen, proposed_skill, status
+    fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
+        Ok(Self {
+            id: row.get(0)?,
+            pattern_type: row.get(1)?,
+            description: row.get(2)?,
+            frequency: row.get(3)?,
+            confidence: row.get(4)?,
+            sample_count: row.get(5)?,
+            first_seen: row.get(6)?,
+            last_seen: row.get(7)?,
+            proposed_skill: row.get(8)?,
+            status: row.get(9)?,
+        })
+    }
 }

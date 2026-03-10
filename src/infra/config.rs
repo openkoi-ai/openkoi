@@ -133,6 +133,13 @@ impl Default for IterationConfig {
     }
 }
 
+impl IterationConfig {
+    /// Return the timeout as a `Duration` (convenience over the raw `timeout_seconds` field).
+    pub fn timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.timeout_seconds)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SafetyConfig {
     pub max_cost_usd: f64,

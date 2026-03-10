@@ -2,7 +2,8 @@
 
 use std::hash::{Hash, Hasher};
 
-use super::types::{IterationCycle, IterationEngineConfig};
+use super::types::IterationCycle;
+use crate::infra::config::IterationConfig;
 
 pub struct EvalCache;
 
@@ -22,7 +23,7 @@ impl EvalCache {
         &self,
         cycle: &IterationCycle,
         history: &[IterationCycle],
-        config: &IterationEngineConfig,
+        config: &IterationConfig,
     ) -> bool {
         // Identical output to previous = same score
         if let Some(prev) = history.last() {
@@ -92,8 +93,8 @@ mod tests {
         c
     }
 
-    fn default_config() -> IterationEngineConfig {
-        IterationEngineConfig::default()
+    fn default_config() -> IterationConfig {
+        IterationConfig::default()
     }
 
     #[test]
@@ -115,7 +116,7 @@ mod tests {
     #[test]
     fn test_skip_high_confidence_with_passing_checks() {
         let cache = EvalCache::new();
-        let config = IterationEngineConfig {
+        let config = IterationConfig {
             skip_eval_confidence: 0.95,
             ..Default::default()
         };

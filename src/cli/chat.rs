@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::core::orchestrator::{Orchestrator, SessionContext};
 use crate::core::safety::SafetyChecker;
-use crate::core::types::{IterationEngineConfig, TaskInput};
+use crate::core::types::{TaskInput};
 use crate::infra::config::Config;
 use crate::infra::session::{Session, SessionStatus, TranscriptEntry};
 use crate::integrations::registry::IntegrationRegistry;
@@ -186,7 +186,7 @@ pub async fn run_chat(
         // Build per-task context
         let mut task = TaskInput::new(trimmed);
         task.session_id = Some(state.session.id.clone());
-        let mut engine_config = IterationEngineConfig::from(&config.iteration);
+        let mut engine_config = config.iteration.clone();
         engine_config.max_iterations = state.max_iterations;
         engine_config.quality_threshold = state.quality_threshold;
         let safety = SafetyChecker::from_config(&config.iteration, &config.safety);
@@ -336,7 +336,7 @@ pub async fn run_chat(
                 if let Some(ref s) = store {
                     let _ = s
                         .insert_usage_event(
-                            uuid::Uuid::new_v4().to_string(),
+                            crate::util::new_id(),
                             "task".to_string(),
                             Some("chat".to_string()),
                             Some(trimmed.to_string()),

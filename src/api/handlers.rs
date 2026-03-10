@@ -23,7 +23,7 @@ pub async fn create_task(
         ));
     }
 
-    let task_id = uuid::Uuid::new_v4().to_string();
+    let task_id = crate::util::new_id();
 
     // Enqueue the task for the daemon to pick up
     if let Ok(mut queue) = state.task_queue.lock() {

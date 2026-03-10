@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::core::orchestrator::{Orchestrator, SessionContext};
 use crate::core::safety::SafetyChecker;
-use crate::core::types::{IterationEngineConfig, TaskInput};
+use crate::core::types::{TaskInput};
 use crate::infra::config::Config;
 use crate::infra::session::Session;
 use crate::integrations::registry::IntegrationRegistry;
@@ -51,7 +51,7 @@ pub async fn run_task(
             .await;
     }
 
-    let mut engine_config = IterationEngineConfig::from(&config.iteration);
+    let mut engine_config = config.iteration.clone();
     engine_config.max_iterations = max_iterations;
     engine_config.quality_threshold = quality_threshold;
 
@@ -165,7 +165,7 @@ pub async fn run_task(
     if let Some(ref s) = store {
         let _ = s
             .insert_usage_event(
-                uuid::Uuid::new_v4().to_string(),
+                crate::util::new_id(),
                 "task".to_string(),
                 Some("cli".to_string()),
                 Some(task_description.to_string()),

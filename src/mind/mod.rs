@@ -65,7 +65,7 @@ impl Store {
         task_id: Option<&str>,
         task_description: &str,
     ) -> anyhow::Result<String> {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = crate::util::new_id();
         let now = chrono::Utc::now().to_rfc3339();
 
         self.conn().execute(
@@ -82,7 +82,7 @@ impl Store {
         )?;
 
         for assessment in &delib.assessments {
-            let aid = uuid::Uuid::new_v4().to_string();
+            let aid = crate::util::new_id();
             let (caveat, block_reason) = match &assessment.verdict {
                 crate::core::parliament::Verdict::ApproveWithCaveat(c) => (Some(c.as_str()), None),
                 crate::core::parliament::Verdict::Block(r) => (None, Some(r.as_str())),

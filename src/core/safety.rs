@@ -6,13 +6,9 @@ use super::types::{IterationCycle, IterationDecision};
 pub struct SafetyChecker {
     pub max_iterations: u8,
     pub max_tokens: u32,
-    pub max_cost_usd: f64,
     pub max_duration_secs: u64,
-    pub abort_on_regression: bool,
-    pub regression_threshold: f32,
-    pub tool_loop_warning: u32,
-    pub tool_loop_critical: u32,
-    pub tool_loop_circuit_breaker: u32,
+    /// Embedded safety configuration (cost limits, regression policy, tool-loop thresholds).
+    pub safety: crate::infra::config::SafetyConfig,
 }
 
 impl SafetyChecker {
@@ -23,13 +19,8 @@ impl SafetyChecker {
         Self {
             max_iterations: iteration.max_iterations,
             max_tokens: iteration.token_budget,
-            max_cost_usd: safety.max_cost_usd,
             max_duration_secs: iteration.timeout_seconds,
-            abort_on_regression: safety.abort_on_regression,
-            regression_threshold: safety.regression_threshold,
-            tool_loop_warning: safety.tool_loop.warning,
-            tool_loop_critical: safety.tool_loop.critical,
-            tool_loop_circuit_breaker: safety.tool_loop.circuit_breaker,
+            safety: safety.clone(),
         }
     }
 
@@ -48,7 +39,7 @@ impl SafetyChecker {
         }
 
         // Cost exceeded
-        if cost_usd >= self.max_cost_usd {
+        if cost_usd >= self.safety.max_cost_usd {
             return Some(IterationDecision::AbortBudget);
         }
 
@@ -58,7 +49,7 @@ impl SafetyChecker {
         }
 
         // Score regression
-        if self.abort_on_regression && cycles.len() >= 2 {
+        if self.safety.abort_on_regression && cycles.len() >= 2 {
             let prev_score = cycles
                 .last()
                 .and_then(|c| c.evaluation.as_ref())
@@ -66,7 +57,7 @@ impl SafetyChecker {
             let curr_score = current.evaluation.as_ref().map(|e| e.score);
 
             if let (Some(prev), Some(curr)) = (prev_score, curr_score) {
-                if prev - curr > self.regression_threshold {
+                if prev - curr > self.safety.regression_threshold {
                     return Some(IterationDecision::AbortRegression);
                 }
             }
@@ -98,13 +89,17 @@ mod tests {
         SafetyChecker {
             max_iterations: 5,
             max_tokens: 100_000,
-            max_cost_usd: 1.0,
             max_duration_secs: 300,
-            abort_on_regression: true,
-            regression_threshold: 0.15,
-            tool_loop_warning: 10,
-            tool_loop_critical: 20,
-            tool_loop_circuit_breaker: 30,
+            safety: crate::infra::config::SafetyConfig {
+                max_cost_usd: 1.0,
+                abort_on_regression: true,
+                regression_threshold: 0.15,
+                tool_loop: crate::infra::config::ToolLoopConfig {
+                    warning: 10,
+                    critical: 20,
+                    circuit_breaker: 30,
+                },
+            },
         }
     }
 

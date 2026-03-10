@@ -107,7 +107,7 @@ impl Store {
         if !success {
             if let Some(reason) = failure_reason {
                 let failure_type = categorize_failure(reason);
-                let fid = uuid::Uuid::new_v4().to_string();
+                let fid = crate::util::new_id();
 
                 self.conn().execute(
                     "INSERT INTO tool_failure_modes (id, tool_name, failure_type, frequency, confidence, first_seen, last_seen)
