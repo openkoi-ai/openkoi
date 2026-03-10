@@ -16,7 +16,7 @@ use crate::memory::recall::{self, HistoryRecall};
 use crate::memory::StoreHandle;
 use crate::plugins::mcp::McpManager;
 use crate::provider::roles::ModelRoles;
-use crate::provider::{ModelProvider, ModelRef, ToolDef};
+use crate::provider::{ChatRequest, Message, ModelProvider, ModelRef, ToolDef};
 use crate::skills::registry::SkillRegistry;
 use crate::soul::loader;
 use crate::soul::sovereign;
@@ -94,9 +94,16 @@ pub async fn run_think(
         return Ok(());
     }
 
-    // ─── Simulation mode: stop here ─────────────────────────────────────────
+    // ─── Simulation mode: Chess Mode — multi-strategy evaluation ───────────
     if simulate {
-        render_simulation_footer();
+        render_chess_mode(
+            &provider,
+            &model_ref.model,
+            task_description,
+            &directive,
+            &deliberation,
+        )
+        .await;
         return Ok(());
     }
 
@@ -407,19 +414,288 @@ fn render_escalation(deliberation: &Deliberation) {
     eprintln!();
 }
 
-fn render_simulation_footer() {
+// ─── Chess Mode (Multi-Strategy Simulation) ────────────────────────────────
+
+/// A single simulated strategy ("future") for the task.
+struct SimulatedFuture {
+    label: String,       // e.g., "Future A: Send now"
+    consequence: String,  // e.g., "3 recipients in CET will see it at 1:55 AM"
+    response_rate: String, // e.g., "LOW (out of hours)"
+    risk: String,         // e.g., "Looks like you forgot timezone"
+}
+
+/// The recommendation synthesised from all futures.
+struct ChessRecommendation {
+    chosen: String,       // e.g., "Future B (schedule for CET morning)"
+    champion: String,     // e.g., "Empath (\"don't look careless about timezone\")"
+    dissent: String,      // e.g., "Economist (\"just send it now, saves time\")"
+}
+
+/// Generate 2-3 alternative strategies and a recommendation via LLM.
+async fn generate_chess_futures(
+    provider: &Arc<dyn ModelProvider>,
+    model_id: &str,
+    task_description: &str,
+    directive: &crate::soul::sovereign::SovereignDirective,
+    deliberation: &Deliberation,
+) -> Option<(Vec<SimulatedFuture>, ChessRecommendation)> {
+    let caveats_text = if deliberation.caveats.is_empty() {
+        "None".to_string()
+    } else {
+        deliberation.caveats.join("; ")
+    };
+
+    let prompt = format!(
+        "You are the Strategist layer of an AI agent simulating alternative futures \
+         before taking action.\n\n\
+         ## Task\n{task}\n\n\
+         ## Sovereign Directive\n{directive}\n\n\
+         ## Parliament Caveats\n{caveats}\n\n\
+         ## Instructions\n\
+         Generate exactly 3 alternative strategies (\"futures\") for accomplishing this task. \
+         Each future should represent a meaningfully different approach.\n\n\
+         Then choose the best future and explain which Parliament agency champions it \
+         and which dissents.\n\n\
+         ## Output Format\n\
+         Respond in this exact format (no extra text, no markdown):\n\n\
+         FUTURE_A: <short strategy name>\n\
+         CONSEQUENCE: <what happens if we do this>\n\
+         RESPONSE: <expected effectiveness: LOW, MEDIUM, or HIGH with brief reason>\n\
+         RISK: <main risk, or NONE>\n\n\
+         FUTURE_B: <short strategy name>\n\
+         CONSEQUENCE: <what happens if we do this>\n\
+         RESPONSE: <expected effectiveness: LOW, MEDIUM, or HIGH with brief reason>\n\
+         RISK: <main risk, or NONE>\n\n\
+         FUTURE_C: <short strategy name>\n\
+         CONSEQUENCE: <what happens if we do this>\n\
+         RESPONSE: <expected effectiveness: LOW, MEDIUM, or HIGH with brief reason>\n\
+         RISK: <main risk, or NONE>\n\n\
+         RECOMMENDATION: <Future A, B, or C> (<short reason>)\n\
+         CHAMPION: <Agency name> (\"<their reasoning in quotes>\")\n\
+         DISSENT: <Agency name> (\"<their reasoning in quotes>\")",
+        task = task_description,
+        directive = directive.text,
+        caveats = caveats_text,
+    );
+
+    let response = provider
+        .chat(ChatRequest {
+            model: model_id.to_string(),
+            messages: vec![Message::user(prompt)],
+            max_tokens: Some(600),
+            temperature: Some(0.4),
+            ..Default::default()
+        })
+        .await
+        .ok()?;
+
+    parse_chess_response(&response.content)
+}
+
+/// Parse the structured LLM response into futures + recommendation.
+fn parse_chess_response(content: &str) -> Option<(Vec<SimulatedFuture>, ChessRecommendation)> {
+    let mut futures = Vec::new();
+    let mut current_label = String::new();
+    let mut current_consequence = String::new();
+    let mut current_response = String::new();
+    let mut current_risk = String::new();
+
+    let mut recommendation = String::new();
+    let mut champion = String::new();
+    let mut dissent = String::new();
+
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            // Flush current future if we have one
+            if !current_label.is_empty() {
+                futures.push(SimulatedFuture {
+                    label: std::mem::take(&mut current_label),
+                    consequence: std::mem::take(&mut current_consequence),
+                    response_rate: std::mem::take(&mut current_response),
+                    risk: std::mem::take(&mut current_risk),
+                });
+            }
+            continue;
+        }
+
+        if let Some(rest) = strip_key(line, "FUTURE_A:") {
+            current_label = format!("Future A: {}", rest);
+        } else if let Some(rest) = strip_key(line, "FUTURE_B:") {
+            // Flush previous
+            if !current_label.is_empty() {
+                futures.push(SimulatedFuture {
+                    label: std::mem::take(&mut current_label),
+                    consequence: std::mem::take(&mut current_consequence),
+                    response_rate: std::mem::take(&mut current_response),
+                    risk: std::mem::take(&mut current_risk),
+                });
+            }
+            current_label = format!("Future B: {}", rest);
+        } else if let Some(rest) = strip_key(line, "FUTURE_C:") {
+            if !current_label.is_empty() {
+                futures.push(SimulatedFuture {
+                    label: std::mem::take(&mut current_label),
+                    consequence: std::mem::take(&mut current_consequence),
+                    response_rate: std::mem::take(&mut current_response),
+                    risk: std::mem::take(&mut current_risk),
+                });
+            }
+            current_label = format!("Future C: {}", rest);
+        } else if let Some(rest) = strip_key(line, "CONSEQUENCE:") {
+            current_consequence = rest.to_string();
+        } else if let Some(rest) = strip_key(line, "RESPONSE:") {
+            current_response = rest.to_string();
+        } else if let Some(rest) = strip_key(line, "RISK:") {
+            current_risk = rest.to_string();
+        } else if let Some(rest) = strip_key(line, "RECOMMENDATION:") {
+            recommendation = rest.to_string();
+        } else if let Some(rest) = strip_key(line, "CHAMPION:") {
+            champion = rest.to_string();
+        } else if let Some(rest) = strip_key(line, "DISSENT:") {
+            dissent = rest.to_string();
+        }
+    }
+
+    // Flush last future
+    if !current_label.is_empty() {
+        futures.push(SimulatedFuture {
+            label: current_label,
+            consequence: current_consequence,
+            response_rate: current_response,
+            risk: current_risk,
+        });
+    }
+
+    if futures.is_empty() {
+        return None;
+    }
+
+    Some((
+        futures,
+        ChessRecommendation {
+            chosen: recommendation,
+            champion,
+            dissent,
+        },
+    ))
+}
+
+/// Case-insensitive key prefix strip.
+fn strip_key<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    let upper = line.to_uppercase();
+    if upper.starts_with(&key.to_uppercase()) {
+        Some(line[key.len()..].trim())
+    } else {
+        None
+    }
+}
+
+/// Render the full Chess Mode simulation output.
+async fn render_chess_mode(
+    provider: &Arc<dyn ModelProvider>,
+    model_id: &str,
+    task_description: &str,
+    directive: &crate::soul::sovereign::SovereignDirective,
+    deliberation: &Deliberation,
+) {
     let width = 65;
     let border = "─".repeat(width);
 
     eprintln!("╭─{}─╮", border);
-    eprintln!("│ {:<width$} │", "🔮 SIMULATION COMPLETE", width = width);
-    eprintln!("│{:width$}│", "", width = width + 2);
     eprintln!(
         "│ {:<width$} │",
-        "No actions were taken. Run without --simulate to proceed.",
+        "🔮 SIMULATION ONLY (no actions will be taken)",
         width = width
     );
+    eprintln!("│{:width$}│", "", width = width + 2);
+
+    // Generate futures via LLM
+    match generate_chess_futures(provider, model_id, task_description, directive, deliberation)
+        .await
+    {
+        Some((futures, rec)) => {
+            eprintln!(
+                "│ {:<width$} │",
+                "Simulated futures:",
+                width = width
+            );
+            eprintln!("│{:width$}│", "", width = width + 2);
+
+            for future in &futures {
+                // Future label
+                let label = format!(" {}", future.label);
+                for wrapped in wrap_lines(&label, width) {
+                    eprintln!("│ {:<width$} │", wrapped, width = width);
+                }
+
+                // Consequence
+                if !future.consequence.is_empty() {
+                    let line = format!("   → {}", future.consequence);
+                    for wrapped in wrap_lines(&line, width) {
+                        eprintln!("│ {:<width$} │", wrapped, width = width);
+                    }
+                }
+
+                // Response rate / effectiveness
+                if !future.response_rate.is_empty() {
+                    let line = format!("   → Likely effectiveness: {}", future.response_rate);
+                    for wrapped in wrap_lines(&line, width) {
+                        eprintln!("│ {:<width$} │", wrapped, width = width);
+                    }
+                }
+
+                // Risk
+                if !future.risk.is_empty() {
+                    let line = format!("   → Risk: {}", future.risk);
+                    for wrapped in wrap_lines(&line, width) {
+                        eprintln!("│ {:<width$} │", wrapped, width = width);
+                    }
+                }
+
+                eprintln!("│{:width$}│", "", width = width + 2);
+            }
+
+            // Recommendation
+            if !rec.chosen.is_empty() {
+                let rec_line = format!("🎯 Recommendation: {}", rec.chosen);
+                for wrapped in wrap_lines(&rec_line, width) {
+                    eprintln!("│ {:<width$} │", wrapped, width = width);
+                }
+            }
+
+            if !rec.champion.is_empty() {
+                let champ_line = format!("   Champion: {}", rec.champion);
+                for wrapped in wrap_lines(&champ_line, width) {
+                    eprintln!("│ {:<width$} │", wrapped, width = width);
+                }
+            }
+
+            if !rec.dissent.is_empty() {
+                let dissent_line = format!("   Dissent:  {}", rec.dissent);
+                for wrapped in wrap_lines(&dissent_line, width) {
+                    eprintln!("│ {:<width$} │", wrapped, width = width);
+                }
+            }
+        }
+        None => {
+            // Fallback: could not generate futures (LLM failure or parse failure)
+            eprintln!(
+                "│ {:<width$} │",
+                "Could not generate alternative futures.",
+                width = width
+            );
+            eprintln!(
+                "│ {:<width$} │",
+                "The parliament deliberation above is your simulation.",
+                width = width
+            );
+        }
+    }
+
     eprintln!("╰─{}─╯", border);
+    eprintln!();
+    eprintln!("No actions taken. Run without --simulate to proceed.");
     eprintln!();
 }
 

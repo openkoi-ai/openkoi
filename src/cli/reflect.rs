@@ -25,10 +25,23 @@ pub fn run_today(store: &Store) -> anyhow::Result<()> {
         r.tasks_completed, r.tasks_escalated, r.tasks_failed,
     );
     eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&summary, w), w = w);
+
+    // Cost and token usage
+    if r.total_cost > 0.0 || r.total_tokens > 0 {
+        let cost_line = format!("Cost: ${:.4}  |  Tokens: {}", r.total_cost, r.total_tokens,);
+        eprintln!(
+            "\u{2502} {:<w$} \u{2502}",
+            truncate_str(&cost_line, w),
+            w = w
+        );
+    }
     eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
 
     // Decisions
     if !r.decisions.is_empty() {
+        // Fetch today's deliberations for parliament verdict matching
+        let deliberations = store.query_recent_deliberations(20).unwrap_or_default();
+
         eprintln!(
             "\u{2502} {:<w$} \u{2502}",
             "\u{250c}\u{2500} DECISIONS MADE \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2510}",
@@ -45,6 +58,49 @@ pub fn run_today(store: &Store) -> anyhow::Result<()> {
                 truncate_str(&outcome_line, w),
                 w = w
             );
+
+            // Try to match this decision to a parliament deliberation
+            if let Some(delib) = deliberations.iter().find(|dl| {
+                // Match by task description overlap
+                dl.task_description.to_lowercase().contains(
+                    &d.description
+                        .to_lowercase()
+                        .chars()
+                        .take(30)
+                        .collect::<String>(),
+                ) || d.description.to_lowercase().contains(
+                    &dl.task_description
+                        .to_lowercase()
+                        .chars()
+                        .take(30)
+                        .collect::<String>(),
+                )
+            }) {
+                let verdict_str = if delib.approved {
+                    "APPROVED"
+                } else {
+                    "BLOCKED"
+                };
+                let agencies: Vec<String> = delib
+                    .assessments
+                    .iter()
+                    .map(|a| format!("{}:{}", a.agency, a.verdict))
+                    .collect();
+                let parl_line = if agencies.is_empty() {
+                    format!("         Parliament: {}", verdict_str)
+                } else {
+                    format!(
+                        "         Parliament: {} [{}]",
+                        verdict_str,
+                        truncate_str(&agencies.join(", "), 35),
+                    )
+                };
+                eprintln!(
+                    "\u{2502} {:<w$} \u{2502}",
+                    truncate_str(&parl_line, w),
+                    w = w
+                );
+            }
         }
 
         eprintln!(
@@ -100,6 +156,15 @@ pub fn run_today(store: &Store) -> anyhow::Result<()> {
     eprintln!(
         "\u{2502} {:<w$} \u{2502}",
         "\u{2514}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2518}",
+        w = w
+    );
+    eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
+
+    // Reflective closing quote
+    let quote = reflective_quote(&r);
+    eprintln!(
+        "\u{2502} {:<w$} \u{2502}",
+        truncate_str(&format!("\u{1f4ad} \"{}\"", quote), w),
         w = w
     );
 
@@ -319,6 +384,23 @@ pub fn run_honest(store: &Store) -> anyhow::Result<()> {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+
+/// Generate a reflective closing quote based on today's data.
+fn reflective_quote(r: &reflect::DailyReflection) -> String {
+    if r.tasks_completed == 0 && r.tasks_failed == 0 {
+        "A quiet day. Tomorrow brings new opportunities.".into()
+    } else if r.judgment_accuracy >= 0.9 {
+        "High accuracy today. Stay calibrated, not complacent.".into()
+    } else if r.tasks_failed > r.tasks_completed {
+        "More failures than wins. What pattern am I missing?".into()
+    } else if r.biggest_miss.is_some() && r.judgment_accuracy < 0.6 {
+        "I was overconfident today. Recalibrating.".into()
+    } else if r.learnings_saved > 3 {
+        "Lots to absorb. Let the learnings settle before acting on them.".into()
+    } else {
+        "Steady progress. Each iteration sharpens the blade.".into()
+    }
+}
 
 fn truncate_str(s: &str, max: usize) -> String {
     if s.len() <= max {

@@ -6,10 +6,17 @@
 // evolve  — trigger soul evolution check (requires LLM provider)
 
 use crate::memory::store::Store;
+use crate::reflect;
 use crate::soul::loader;
 
 /// Run `openkoi soul show` — display the current soul.
-pub fn run_show() -> anyhow::Result<()> {
+///
+/// Shows three sections per the EFaaS spec:
+/// - EXPLICIT: raw SOUL.md content
+/// - LEARNED: trust domains, top high-confidence learnings
+/// - TRAJECTORY: inferred direction from recent learnings
+/// Plus a metadata footer (maturity stage, soul age, interaction count).
+pub fn run_show(store: &Store) -> anyhow::Result<()> {
     let soul = loader::load_soul();
 
     let w = 65;
@@ -31,7 +38,7 @@ pub fn run_show() -> anyhow::Result<()> {
     );
     eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
 
-    // Inner box: EXPLICIT (from SOUL.md)
+    // ── Inner box: EXPLICIT (from SOUL.md) ──────────────────────────────
     eprintln!(
         "\u{2502} {:<w$} \u{2502}",
         "\u{250c}\u{2500} EXPLICIT (from SOUL.md) \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2510}",
@@ -60,6 +67,245 @@ pub fn run_show() -> anyhow::Result<()> {
     eprintln!(
         "\u{2502} {:<w$} \u{2502}",
         "\u{2514}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2518}",
+        w = w
+    );
+    eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
+
+    // ── Inner box: LEARNED (from interactions) ──────────────────────────
+    eprintln!(
+        "\u{2502} {:<w$} \u{2502}",
+        "\u{250c}\u{2500} LEARNED (from interactions) \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2510}",
+        w = w
+    );
+
+    // Trust domains with scores
+    let trust_entries = store.query_trust_levels().unwrap_or_default();
+    if trust_entries.is_empty() {
+        eprintln!(
+            "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
+            "  No trust data yet.",
+            iw = w - 4
+        );
+    } else {
+        eprintln!(
+            "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
+            "  Trust domains:",
+            iw = w - 4
+        );
+        for te in &trust_entries {
+            let acc_str = if te.accuracy_total > 0 {
+                format!("{:.0}%", te.accuracy() * 100.0)
+            } else {
+                "n/a".into()
+            };
+            let line = format!(
+                "    {:<20} {:>6}  acc: {:>4}  ({})",
+                truncate_str(&te.domain, 20),
+                te.trust_level,
+                acc_str,
+                te.mode.display_label(),
+            );
+            eprintln!(
+                "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
+                truncate_str(&line, w - 6),
+                iw = w - 4
+            );
+        }
+    }
+
+    eprintln!(
+        "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
+        "",
+        iw = w - 4
+    );
+
+    // Top high-confidence learnings
+    let learnings = store.query_high_confidence_learnings(0.7, 5).unwrap_or_default();
+    if learnings.is_empty() {
+        eprintln!(
+            "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
+            "  No high-confidence learnings yet.",
+            iw = w - 4
+        );
+    } else {
+        eprintln!(
+            "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
+            "  Top learnings:",
+            iw = w - 4
+        );
+        for l in &learnings {
+            let line = format!(
+                "    \u{2022} {} ({:.2})",
+                truncate_str(&l.content, w - 18),
+                l.confidence,
+            );
+            eprintln!(
+                "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
+                truncate_str(&line, w - 6),
+                iw = w - 4
+            );
+        }
+    }
+
+    eprintln!(
+        "\u{2502} {:<w$} \u{2502}",
+        "\u{2514}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2518}",
+        w = w
+    );
+    eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
+
+    // ── Inner box: TRAJECTORY (inferred direction) ──────────────────────
+    eprintln!(
+        "\u{2502} {:<w$} \u{2502}",
+        "\u{250c}\u{2500} TRAJECTORY (inferred direction) \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2510}",
+        w = w
+    );
+
+    // Infer trajectory from learnings and patterns
+    let all_learnings = store.query_all_learnings().unwrap_or_default();
+    let patterns = store.query_detected_patterns().unwrap_or_default();
+
+    if all_learnings.is_empty() && patterns.is_empty() {
+        eprintln!(
+            "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
+            "  Not enough data to infer trajectory yet.",
+            iw = w - 4
+        );
+        eprintln!(
+            "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
+            "  Keep using openkoi to build signal.",
+            iw = w - 4
+        );
+    } else {
+        // Summarize by category
+        let mut cat_counts: std::collections::HashMap<String, u32> =
+            std::collections::HashMap::new();
+        for l in &all_learnings {
+            let cat = l.category.clone().unwrap_or_else(|| "general".into());
+            *cat_counts.entry(cat).or_insert(0) += 1;
+        }
+        let mut cats: Vec<(String, u32)> = cat_counts.into_iter().collect();
+        cats.sort_by(|a, b| b.1.cmp(&a.1));
+
+        if !cats.is_empty() {
+            let focus = cats
+                .iter()
+                .take(3)
+                .map(|(c, n)| format!("{} ({})", c, n))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let focus_line = format!("  Focus areas: {}", focus);
+            eprintln!(
+                "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
+                truncate_str(&focus_line, w - 6),
+                iw = w - 4
+            );
+        }
+
+        if !patterns.is_empty() {
+            let pat_line = format!("  Patterns detected: {}", patterns.len());
+            eprintln!(
+                "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
+                truncate_str(&pat_line, w - 6),
+                iw = w - 4
+            );
+        }
+
+        // Check for potential contradictions: learnings with low confidence
+        // that contradict high-confidence ones
+        let low_conf = all_learnings.iter().filter(|l| l.confidence < 0.4).count();
+        let high_conf = all_learnings.iter().filter(|l| l.confidence >= 0.8).count();
+        if low_conf > 0 && high_conf > 0 {
+            let contra = format!(
+                "  \u{26a0} {} low-confidence learnings may contradict {} strong ones",
+                low_conf, high_conf,
+            );
+            eprintln!(
+                "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
+                truncate_str(&contra, w - 6),
+                iw = w - 4
+            );
+        }
+
+        let total_line = format!(
+            "  Total signal: {} learnings, {} patterns",
+            all_learnings.len(),
+            patterns.len(),
+        );
+        eprintln!(
+            "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
+            truncate_str(&total_line, w - 6),
+            iw = w - 4
+        );
+    }
+
+    eprintln!(
+        "\u{2502} {:<w$} \u{2502}",
+        "\u{2514}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2518}",
+        w = w
+    );
+    eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
+
+    // ── Metadata footer ─────────────────────────────────────────────────
+    let growth = reflect::reflect_growth(store).ok();
+    let stage_str = growth
+        .as_ref()
+        .map(|g| format!("Stage {}: {}", g.current_stage, g.stage_name))
+        .unwrap_or_else(|| "Unknown".into());
+
+    let learnings_count = store.count_learnings().unwrap_or(0);
+
+    // Count total interactions (usage events)
+    let interaction_count: i64 = store
+        .conn()
+        .query_row(
+            "SELECT COUNT(*) FROM usage_events",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+
+    // Soul age: first usage event date vs now
+    let soul_age = store
+        .conn()
+        .query_row(
+            "SELECT MIN(timestamp) FROM usage_events",
+            [],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .unwrap_or(None)
+        .and_then(|ts| {
+            chrono::NaiveDateTime::parse_from_str(&ts, "%Y-%m-%dT%H:%M:%S%.f%z")
+                .or_else(|_| chrono::NaiveDateTime::parse_from_str(&ts, "%Y-%m-%dT%H:%M:%S"))
+                .ok()
+                .map(|first| {
+                    let now = chrono::Utc::now().naive_utc();
+                    let days = (now - first).num_days();
+                    if days <= 0 {
+                        "today".to_string()
+                    } else if days == 1 {
+                        "1 day".to_string()
+                    } else {
+                        format!("{} days", days)
+                    }
+                })
+        })
+        .unwrap_or_else(|| "new".into());
+
+    let meta1 = format!("Maturity: {}  |  Soul age: {}", stage_str, soul_age);
+    eprintln!(
+        "\u{2502} {:<w$} \u{2502}",
+        truncate_str(&meta1, w),
+        w = w
+    );
+
+    let meta2 = format!(
+        "Interactions: {}  |  Learnings: {}",
+        interaction_count, learnings_count,
+    );
+    eprintln!(
+        "\u{2502} {:<w$} \u{2502}",
+        truncate_str(&meta2, w),
         w = w
     );
 

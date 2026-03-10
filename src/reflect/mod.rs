@@ -234,13 +234,16 @@ pub fn reflect_today(store: &Store) -> anyhow::Result<DailyReflection> {
 
     let learnings = store.count_learnings().unwrap_or(0);
 
+    // Aggregate real cost/token data from sessions and tasks today
+    let (total_cost, total_tokens) = aggregate_daily_cost_tokens(store, &today);
+
     Ok(DailyReflection {
         date: today,
         tasks_completed,
         tasks_escalated,
         tasks_failed,
-        total_cost: 0.0, // Aggregated from sessions
-        total_tokens: 0,
+        total_cost,
+        total_tokens,
         decisions,
         judgment_accuracy,
         biggest_miss,
@@ -297,12 +300,15 @@ pub fn reflect_week(store: &Store) -> anyhow::Result<WeeklyReflection> {
     let learnings = store.count_learnings().unwrap_or(0);
     let patterns = store.query_detected_patterns().unwrap_or_default();
 
+    // Aggregate real cost data from tasks this week
+    let total_cost = aggregate_weekly_cost(store, &since);
+
     Ok(WeeklyReflection {
         week_start: week_ago.format("%Y-%m-%d").to_string(),
         week_end: now.format("%Y-%m-%d").to_string(),
         total_tasks,
         avg_score,
-        total_cost: 0.0,
+        total_cost,
         top_categories,
         score_trend,
         learnings_accumulated: learnings as u32,
@@ -555,6 +561,48 @@ pub fn reflect_honest(store: &Store) -> anyhow::Result<HonestyAudit> {
         calibration_by_domain,
         summary,
     })
+}
+
+// ─── Cost/Token aggregation ─────────────────────────────────────────────────
+
+/// Aggregate cost and tokens from tasks completed today.
+fn aggregate_daily_cost_tokens(store: &Store, today: &str) -> (f64, i64) {
+    let since = format!("{}T00:00:00", today);
+
+    let cost: f64 = store
+        .conn()
+        .query_row(
+            "SELECT COALESCE(SUM(total_cost_usd), 0.0) FROM tasks
+             WHERE created_at >= ?1 AND total_cost_usd IS NOT NULL",
+            rusqlite::params![since],
+            |r| r.get(0),
+        )
+        .unwrap_or(0.0);
+
+    let tokens: i64 = store
+        .conn()
+        .query_row(
+            "SELECT COALESCE(SUM(total_tokens), 0) FROM tasks
+             WHERE created_at >= ?1 AND total_tokens IS NOT NULL",
+            rusqlite::params![since],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+
+    (cost, tokens)
+}
+
+/// Aggregate cost from tasks in a time window.
+fn aggregate_weekly_cost(store: &Store, since: &str) -> f64 {
+    store
+        .conn()
+        .query_row(
+            "SELECT COALESCE(SUM(total_cost_usd), 0.0) FROM tasks
+             WHERE created_at >= ?1 AND total_cost_usd IS NOT NULL",
+            rusqlite::params![since],
+            |r| r.get(0),
+        )
+        .unwrap_or(0.0)
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

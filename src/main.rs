@@ -183,7 +183,7 @@ async fn run() -> anyhow::Result<()> {
             let store = init_store_sync()
                 .ok_or_else(|| anyhow::anyhow!("Database not initialized. Run `openkoi setup`."))?;
             match action {
-                Some(SoulAction::Show) | None => openkoi::cli::soul::run_show()?,
+                Some(SoulAction::Show) | None => openkoi::cli::soul::run_show(&store)?,
                 Some(SoulAction::Diff) => openkoi::cli::soul::run_diff(&store)?,
                 Some(SoulAction::History) => openkoi::cli::soul::run_history(&store)?,
                 Some(SoulAction::Evolve) => openkoi::cli::soul::run_evolve().await?,

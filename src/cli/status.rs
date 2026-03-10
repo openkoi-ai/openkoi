@@ -5,8 +5,11 @@ use crate::memory::schema;
 use crate::memory::store::Store;
 use rusqlite::Connection;
 
-/// Display system status.
-pub async fn show_status(verbose: bool, costs: bool) -> anyhow::Result<()> {
+/// Display system status using box-drawing (consistent with all other CLI output).
+///
+/// Shows: version, config, DB, soul, skills, maturity stage, daemon,
+/// activity stats, costs (always shown), and optionally verbose paths.
+pub async fn show_status(verbose: bool, _costs: bool) -> anyhow::Result<()> {
     let db_path = paths::db_path();
     let db_exists = db_path.exists();
     let db_size = if db_exists {
@@ -21,108 +24,174 @@ pub async fn show_status(verbose: bool, costs: bool) -> anyhow::Result<()> {
     let soul_path = paths::soul_path();
     let soul_exists = soul_path.exists();
 
-    println!("openkoi v{}", env!("CARGO_PKG_VERSION"));
-    println!();
+    let w = 65;
+    let border = "\u{2500}".repeat(w);
 
-    // Config
-    if config_exists {
-        println!("  Config:     {} (loaded)", config_path.display());
+    eprintln!("\u{256d}\u{2500}{}\u{2500}\u{256e}", border);
+    let version_line = format!(
+        "\u{1f41f} openkoi v{}",
+        env!("CARGO_PKG_VERSION"),
+    );
+    eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&version_line, w), w = w);
+    eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
+
+    // ── Config / DB / Soul ──────────────────────────────────────────────
+    let config_str = if config_exists {
+        format!("Config:   {} (loaded)", config_path.display())
     } else {
-        println!("  Config:     (using defaults)");
-    }
+        "Config:   (using defaults)".into()
+    };
+    eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&config_str, w), w = w);
 
-    // Database
-    if db_exists {
-        println!(
-            "  Database:   {} ({})",
+    let db_str = if db_exists {
+        format!(
+            "Database: {} ({})",
             db_path.display(),
             format_bytes(db_size),
-        );
+        )
     } else {
-        println!("  Database:   (not initialized)");
-    }
+        "Database: (not initialized)".into()
+    };
+    eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&db_str, w), w = w);
 
-    // Soul
-    if soul_exists {
-        println!("  Soul:       {} (custom)", soul_path.display());
+    let soul_str = if soul_exists {
+        format!("Soul:     {} (custom)", soul_path.display())
     } else {
-        println!("  Soul:       (default)");
-    }
+        "Soul:     (default)".into()
+    };
+    eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&soul_str, w), w = w);
 
     // Skills
     let managed = count_dir_entries(&paths::managed_skills_dir());
     let user = count_dir_entries(&paths::user_skills_dir());
     let proposed = count_dir_entries(&paths::proposed_skills_dir());
-    println!(
-        "  Skills:     {} managed, {} user, {} proposed",
+    let skills_str = format!(
+        "Skills:   {} managed, {} user, {} proposed",
         managed, user, proposed
     );
+    eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&skills_str, w), w = w);
 
-    // Query real data from DB if it exists
+    // ── Daemon status ───────────────────────────────────────────────────
+    let daemon_running = crate::infra::daemon::process::is_daemon_running();
+    let daemon_str = if daemon_running {
+        "Daemon:   \u{2705} running"
+    } else {
+        "Daemon:   \u{2b1c} stopped"
+    };
+    eprintln!("\u{2502} {:<w$} \u{2502}", daemon_str, w = w);
+
+    // ── Maturity stage ──────────────────────────────────────────────────
     if db_exists {
         if let Ok(stats) = query_db_stats(&db_path) {
-            println!();
-            println!("  Activity:");
-            println!(
-                "    Tasks:      {} total ({} completed)",
-                stats.total_tasks, stats.completed_tasks
-            );
-            println!("    Learnings:  {}", stats.learnings_count);
-            println!("    Sessions:   {}", stats.sessions_count);
-
-            if stats.completed_tasks > 0 {
-                println!("    Avg score:  {:.1}", stats.avg_score);
-                println!("    Avg iters:  {:.1}", stats.avg_iterations);
+            // Growth stage
+            let growth = query_growth_stage(&db_path);
+            if let Some((stage, name)) = growth {
+                let stage_str = format!("Maturity: Stage {} \u{2014} {}", stage, name);
+                eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&stage_str, w), w = w);
             }
 
-            // Show last session summary
-            if let Some(ref last) = stats.last_session {
-                println!();
-                println!("  Last session:");
-                println!("    ID:         {}", &last.id[..last.id.len().min(8)]);
-                println!("    Channel:    {}", last.channel);
-                println!("    Status:     {}", last.status);
-                println!("    Created:    {}", last.created_at);
-                if last.total_tokens > 0 {
-                    println!(
-                        "    Usage:      {} tokens, ${:.4}",
-                        last.total_tokens, last.total_cost_usd
+            eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
+
+            // ── Activity ────────────────────────────────────────────────
+            eprintln!(
+                "\u{2502} {:<w$} \u{2502}",
+                "\u{250c}\u{2500} ACTIVITY \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2510}",
+                w = w
+            );
+
+            let tasks_line = format!(
+                "  Tasks:      {} total ({} completed)",
+                stats.total_tasks, stats.completed_tasks,
+            );
+            eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&tasks_line, w), w = w);
+
+            let learn_line = format!("  Learnings:  {}", stats.learnings_count);
+            eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&learn_line, w), w = w);
+
+            let sess_line = format!("  Sessions:   {}", stats.sessions_count);
+            eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&sess_line, w), w = w);
+
+            if stats.completed_tasks > 0 {
+                let score_line = format!("  Avg score:  {:.1}", stats.avg_score);
+                eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&score_line, w), w = w);
+                let iter_line = format!("  Avg iters:  {:.1}", stats.avg_iterations);
+                eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&iter_line, w), w = w);
+            }
+
+            eprintln!(
+                "\u{2502} {:<w$} \u{2502}",
+                "\u{2514}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2518}",
+                w = w
+            );
+
+            // ── Cost tracking (always shown now) ────────────────────────
+            if let Ok(cost_stats) = query_cost_stats(&db_path) {
+                if cost_stats.total_cost > 0.0 || cost_stats.task_count > 0 {
+                    eprintln!(
+                        "\u{2502} {:<w$} \u{2502}",
+                        "\u{250c}\u{2500} COSTS \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2510}",
+                        w = w
                     );
+
+                    let tokens_line = format!(
+                        "  Tokens:     {} in / {} out",
+                        cost_stats.total_input_tokens, cost_stats.total_output_tokens,
+                    );
+                    eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&tokens_line, w), w = w);
+
+                    let cost_line = format!("  Total cost: ${:.4}", cost_stats.total_cost);
+                    eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&cost_line, w), w = w);
+
+                    if cost_stats.task_count > 0 {
+                        let avg_line = format!(
+                            "  Avg/task:   ${:.4} ({} tokens)",
+                            cost_stats.total_cost / cost_stats.task_count as f64,
+                            (cost_stats.total_input_tokens + cost_stats.total_output_tokens)
+                                / cost_stats.task_count,
+                        );
+                        eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&avg_line, w), w = w);
+                    }
+
+                    eprintln!(
+                        "\u{2502} {:<w$} \u{2502}",
+                        "\u{2514}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2518}",
+                        w = w
+                    );
+                }
+            }
+
+            // ── Last session ────────────────────────────────────────────
+            if let Some(ref last) = stats.last_session {
+                eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
+                let last_line = format!(
+                    "Last session: {} ({}, {})",
+                    &last.id[..last.id.len().min(8)],
+                    last.channel,
+                    last.status,
+                );
+                eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&last_line, w), w = w);
+                if last.total_tokens > 0 {
+                    let usage_line = format!(
+                        "  {} tokens, ${:.4}  ({})",
+                        last.total_tokens, last.total_cost_usd, last.created_at,
+                    );
+                    eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&usage_line, w), w = w);
                 }
             }
         }
     }
 
     if verbose {
-        println!();
-        println!("  Data dir:   {}", paths::data_dir().display());
-        println!("  Config dir: {}", paths::config_dir().display());
-        println!("  Sessions:   {}", paths::sessions_dir().display());
+        eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
+        let data_line = format!("Data dir:   {}", paths::data_dir().display());
+        eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&data_line, w), w = w);
+        let conf_line = format!("Config dir: {}", paths::config_dir().display());
+        eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&conf_line, w), w = w);
+        let sess_line = format!("Sessions:   {}", paths::sessions_dir().display());
+        eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&sess_line, w), w = w);
     }
 
-    if costs && db_exists {
-        if let Ok(cost_stats) = query_cost_stats(&db_path) {
-            println!();
-            println!("  Cost tracking:");
-            println!(
-                "    Total tokens: {} in / {} out",
-                cost_stats.total_input_tokens, cost_stats.total_output_tokens
-            );
-            println!("    Total cost:   ${:.4}", cost_stats.total_cost);
-            if cost_stats.task_count > 0 {
-                println!(
-                    "    Avg per task: ${:.4} ({} tokens)",
-                    cost_stats.total_cost / cost_stats.task_count as f64,
-                    (cost_stats.total_input_tokens + cost_stats.total_output_tokens)
-                        / cost_stats.task_count,
-                );
-            }
-        }
-    } else if costs {
-        println!();
-        println!("  Cost tracking:");
-        println!("    (cost data requires database initialization)");
-    }
+    eprintln!("\u{2570}\u{2500}{}\u{2500}\u{256f}", border);
 
     Ok(())
 }
@@ -248,6 +317,24 @@ fn query_cost_stats(db_path: &std::path::Path) -> anyhow::Result<CostStats> {
     })
 }
 
+/// Query the growth/maturity stage from the DB.
+fn query_growth_stage(db_path: &std::path::Path) -> Option<(u8, String)> {
+    let conn = Connection::open(db_path).ok()?;
+    let _ = schema::run_migrations(&conn);
+    let store = Store::new(conn);
+    let growth = crate::reflect::reflect_growth(&store).ok()?;
+    Some((growth.current_stage, growth.stage_name))
+}
+
+fn truncate_str(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        let boundary = s.floor_char_boundary(max.saturating_sub(1));
+        format!("{}\u{2026}", &s[..boundary])
+    }
+}
+
 fn format_bytes(bytes: u64) -> String {
     if bytes >= 1_048_576 {
         format!("{:.1}MB", bytes as f64 / 1_048_576.0)
@@ -352,8 +439,4 @@ fn render_progress_bar(current: u8, max: u8, width: usize) -> String {
     let filled = (clamped * width) / (max as usize);
     let empty = width.saturating_sub(filled);
     format!("[{}{}]", "=".repeat(filled), " ".repeat(empty))
-}
-
-fn truncate_str(s: &str, max: usize) -> &str {
-    crate::util::truncate_str(s, max)
 }
