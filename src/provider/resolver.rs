@@ -193,13 +193,28 @@ pub async fn discover_providers_with_config(config: &Config) -> Vec<Arc<dyn Mode
         seen_providers.push("xai".into());
     }
     if let Some(key) = resolve_key("MOONSHOT_API_KEY", "moonshot").await {
-        let mut p = OpenAICompatProvider::new(
-            "moonshot",
-            "Moonshot",
-            key,
-            "https://api.moonshot.cn/v1".into(),
-            "kimi-k2.5".into(),
-        );
+        // Detect Kimi Code subscription keys (sk-kimi-*) vs Moonshot Open Platform keys (sk-*).
+        // Kimi Code keys only work with `api.kimi.com/coding/v1` and require a whitelisted
+        // User-Agent header. The coding endpoint accepts any model name but silently maps
+        // it to `kimi-for-coding`.
+        let (base_url, default_model, user_agent) = if key.starts_with("sk-kimi-") {
+            (
+                "https://api.kimi.com/coding/v1".to_string(),
+                "kimi-for-coding".to_string(),
+                Some("claude-code/1.0".to_string()),
+            )
+        } else {
+            (
+                "https://api.moonshot.cn/v1".to_string(),
+                "kimi-k2.5".to_string(),
+                None,
+            )
+        };
+
+        let mut p = OpenAICompatProvider::new("moonshot", "Moonshot", key, base_url, default_model);
+        if let Some(ua) = user_agent {
+            p.set_user_agent(ua);
+        }
         p.probe_models().await;
         providers.push(Arc::new(p));
         seen_providers.push("moonshot".into());
@@ -315,7 +330,7 @@ pub fn pick_default_model(providers: &[Arc<dyn ModelProvider>]) -> Option<ModelR
         ("openai", "gpt-4.1"),
         ("google", "gemini-2.5-pro"),
         ("bedrock", "anthropic.claude-sonnet-4-20250514-v1:0"),
-        ("moonshot", "kimi-k2.5"),
+        ("moonshot", "kimi-for-coding"),
         ("openrouter", "auto"),
         ("groq", "llama-3.3-70b-versatile"),
         ("deepseek", "deepseek-chat"),
@@ -334,7 +349,17 @@ pub fn pick_default_model(providers: &[Arc<dyn ModelProvider>]) -> Option<ModelR
                 let model_names: Vec<String> = models.iter().map(|m| m.id.clone()).collect();
                 OllamaProvider::pick_best_model(&model_names)
             } else {
-                model_id.to_string()
+                // Check if the preferred model exists; if not, fall back to provider's first model.
+                // This handles cases like Moonshot where the available model depends on key type
+                // (kimi-for-coding for Kimi Code keys vs kimi-k2.5 for Open Platform keys).
+                let models = p.models();
+                if models.iter().any(|m| m.id == *model_id) {
+                    model_id.to_string()
+                } else if let Some(first) = models.first() {
+                    first.id.clone()
+                } else {
+                    model_id.to_string()
+                }
             };
 
             return Some(ModelRef::new(provider_id.to_string(), model));

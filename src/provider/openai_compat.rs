@@ -28,6 +28,9 @@ pub struct OpenAICompatProvider {
     client: reqwest::Client,
     /// Dynamically probed models, populated by `probe_models()`.
     probed_models: Option<Vec<ModelInfo>>,
+    /// Optional custom User-Agent header override.
+    /// Some providers (e.g., Kimi coding API) require a whitelisted User-Agent.
+    custom_user_agent: Option<String>,
 }
 
 impl OpenAICompatProvider {
@@ -46,7 +49,23 @@ impl OpenAICompatProvider {
             default_model,
             client: reqwest::Client::new(),
             probed_models: None,
+            custom_user_agent: None,
         }
+    }
+
+    /// Set a custom User-Agent header for this provider.
+    ///
+    /// Some providers enforce a User-Agent whitelist (e.g., Kimi coding API
+    /// at `api.kimi.com/coding/v1` only allows specific UA strings).
+    pub fn set_user_agent(&mut self, ua: impl Into<String>) {
+        self.custom_user_agent = Some(ua.into());
+    }
+
+    /// Returns the User-Agent string to use for requests.
+    fn user_agent(&self) -> String {
+        self.custom_user_agent
+            .clone()
+            .unwrap_or_else(|| format!("openkoi/{}", env!("CARGO_PKG_VERSION")))
     }
 
     /// Probe the `/v1/models` (or `/models`) endpoint to discover available models.
@@ -100,10 +119,7 @@ impl OpenAICompatProvider {
             .client
             .get(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
-            .header(
-                "User-Agent",
-                format!("openkoi/{}", env!("CARGO_PKG_VERSION")),
-            )
+            .header("User-Agent", self.user_agent())
             .timeout(PROBE_TIMEOUT)
             .send()
             .await
@@ -274,6 +290,7 @@ impl ModelProvider for OpenAICompatProvider {
             .client
             .post(format!("{}/chat/completions", self.base_url))
             .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("User-Agent", self.user_agent())
             .json(&body)
             .send()
             .await
@@ -304,10 +321,27 @@ impl ModelProvider for OpenAICompatProvider {
             .unwrap_or("")
             .to_string();
 
+        // Some providers (e.g., Kimi coding) return reasoning in a separate field.
+        // Prepend reasoning content so the user can see the model's thought process.
+        let reasoning = resp["choices"][0]["message"]["reasoning_content"]
+            .as_str()
+            .unwrap_or("");
+        let content = if !reasoning.is_empty() && !content.is_empty() {
+            format!("<thinking>\n{reasoning}\n</thinking>\n\n{content}")
+        } else if !reasoning.is_empty() {
+            // Model only produced reasoning (e.g., hit max_tokens during thinking)
+            format!("<thinking>\n{reasoning}\n</thinking>")
+        } else {
+            content
+        };
+
         let usage = TokenUsage {
             input_tokens: resp["usage"]["prompt_tokens"].as_u64().unwrap_or(0) as u32,
             output_tokens: resp["usage"]["completion_tokens"].as_u64().unwrap_or(0) as u32,
-            cache_read_tokens: 0,
+            cache_read_tokens: resp["usage"]["cached_tokens"]
+                .as_u64()
+                .or_else(|| resp["usage"]["prompt_tokens_details"]["cached_tokens"].as_u64())
+                .unwrap_or(0) as u32,
             cache_write_tokens: 0,
         };
 
@@ -380,16 +414,29 @@ impl ModelProvider for OpenAICompatProvider {
             .client
             .post(format!("{}/chat/completions", self.base_url))
             .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("User-Agent", self.user_agent())
             .json(&body);
 
         let mut es = request_builder.eventsource().unwrap();
 
         let stream = async_stream::stream! {
+            // Track whether we've started/ended the reasoning block for providers
+            // that send reasoning_content in streaming deltas (e.g., Kimi coding).
+            let mut in_reasoning = false;
+
             while let Some(event) = es.next().await {
                 match event {
                     Ok(Event::Open) => {},
                     Ok(Event::Message(msg)) => {
                         if msg.data == "[DONE]" {
+                            // Close reasoning block if still open
+                            if in_reasoning {
+                                yield Ok(ChatChunk {
+                                    delta: "\n</thinking>\n\n".to_string(),
+                                    tool_call_delta: None,
+                                    usage: None,
+                                });
+                            }
                             break;
                         }
                         let parsed: serde_json::Value = match serde_json::from_str(&msg.data) {
@@ -404,10 +451,34 @@ impl ModelProvider for OpenAICompatProvider {
                             }
                         };
 
+                        // Handle reasoning_content deltas (e.g., Kimi coding model)
+                        let reasoning_delta = parsed["choices"][0]["delta"]["reasoning_content"]
+                            .as_str()
+                            .unwrap_or("");
+
                         let delta_content = parsed["choices"][0]["delta"]["content"]
                             .as_str()
                             .unwrap_or("")
                             .to_string();
+
+                        // Build the actual delta to emit
+                        let mut emit_delta = String::new();
+
+                        if !reasoning_delta.is_empty() {
+                            if !in_reasoning {
+                                emit_delta.push_str("<thinking>\n");
+                                in_reasoning = true;
+                            }
+                            emit_delta.push_str(reasoning_delta);
+                        }
+
+                        if !delta_content.is_empty() {
+                            if in_reasoning {
+                                emit_delta.push_str("\n</thinking>\n\n");
+                                in_reasoning = false;
+                            }
+                            emit_delta.push_str(&delta_content);
+                        }
 
                         // Extract usage if present (some compat providers include it)
                         let usage = if parsed["usage"].is_object() && !parsed["usage"].is_null() {
@@ -418,22 +489,35 @@ impl ModelProvider for OpenAICompatProvider {
                                 output_tokens: parsed["usage"]["completion_tokens"]
                                     .as_u64()
                                     .unwrap_or(0) as u32,
-                                cache_read_tokens: 0,
+                                cache_read_tokens: parsed["usage"]["cached_tokens"]
+                                    .as_u64()
+                                    .or_else(|| parsed["usage"]["prompt_tokens_details"]["cached_tokens"].as_u64())
+                                    .unwrap_or(0) as u32,
                                 cache_write_tokens: 0,
                             })
                         } else {
                             None
                         };
 
-                        if !delta_content.is_empty() || usage.is_some() {
+                        if !emit_delta.is_empty() || usage.is_some() {
                             yield Ok(ChatChunk {
-                                delta: delta_content,
+                                delta: emit_delta,
                                 tool_call_delta: None,
                                 usage,
                             });
                         }
                     }
-                    Err(reqwest_eventsource::Error::StreamEnded) => break,
+                    Err(reqwest_eventsource::Error::StreamEnded) => {
+                        // Close reasoning block if still open
+                        if in_reasoning {
+                            yield Ok(ChatChunk {
+                                delta: "\n</thinking>\n\n".to_string(),
+                                tool_call_delta: None,
+                                usage: None,
+                            });
+                        }
+                        break;
+                    }
                     Err(e) => {
                         yield Err(OpenKoiError::Provider {
                             provider: provider_id.clone(),
