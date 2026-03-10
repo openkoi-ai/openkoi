@@ -176,4 +176,3 @@ async fn resolve_session(
         }
     }
 }
-

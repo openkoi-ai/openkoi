@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::core::orchestrator::{Orchestrator, SessionContext};
 use crate::core::safety::SafetyChecker;
-use crate::core::types::{TaskInput};
+use crate::core::types::TaskInput;
 use crate::infra::config::Config;
 use crate::infra::session::{Session, SessionStatus, TranscriptEntry};
 use crate::integrations::registry::IntegrationRegistry;

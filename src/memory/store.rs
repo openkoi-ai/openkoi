@@ -365,7 +365,7 @@ impl Store {
              FROM learnings ORDER BY created_at DESC",
         )?;
 
-        let rows = stmt.query_map([], |row| LearningRow::from_row(row))?;
+        let rows = stmt.query_map([], LearningRow::from_row)?;
 
         let mut result = Vec::new();
         for row in rows {
@@ -635,7 +635,7 @@ impl Store {
              ORDER BY confidence DESC",
         )?;
 
-        let rows = stmt.query_map([], |row| UsagePatternRow::from_row(row))?;
+        let rows = stmt.query_map([], UsagePatternRow::from_row)?;
 
         let mut result = Vec::new();
         for row in rows {
@@ -652,7 +652,7 @@ impl Store {
              ORDER BY confidence DESC",
         )?;
 
-        let rows = stmt.query_map([], |row| UsagePatternRow::from_row(row))?;
+        let rows = stmt.query_map([], UsagePatternRow::from_row)?;
 
         let mut result = Vec::new();
         for row in rows {

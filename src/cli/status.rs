@@ -29,11 +29,12 @@ pub async fn show_status(verbose: bool, _costs: bool) -> anyhow::Result<()> {
     let border = "\u{2500}".repeat(w);
 
     eprintln!("\u{256d}\u{2500}{}\u{2500}\u{256e}", border);
-    let version_line = format!(
-        "\u{1f41f} openkoi v{}",
-        env!("CARGO_PKG_VERSION"),
+    let version_line = format!("\u{1f41f} openkoi v{}", env!("CARGO_PKG_VERSION"),);
+    eprintln!(
+        "\u{2502} {:<w$} \u{2502}",
+        truncate_str(&version_line, w),
+        w = w
     );
-    eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&version_line, w), w = w);
     eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
 
     // ── Config / DB / Soul ──────────────────────────────────────────────
@@ -42,7 +43,11 @@ pub async fn show_status(verbose: bool, _costs: bool) -> anyhow::Result<()> {
     } else {
         "Config:   (using defaults)".into()
     };
-    eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&config_str, w), w = w);
+    eprintln!(
+        "\u{2502} {:<w$} \u{2502}",
+        truncate_str(&config_str, w),
+        w = w
+    );
 
     let db_str = if db_exists {
         format!(
@@ -60,7 +65,11 @@ pub async fn show_status(verbose: bool, _costs: bool) -> anyhow::Result<()> {
     } else {
         "Soul:     (default)".into()
     };
-    eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&soul_str, w), w = w);
+    eprintln!(
+        "\u{2502} {:<w$} \u{2502}",
+        truncate_str(&soul_str, w),
+        w = w
+    );
 
     // Skills
     let managed = count_dir_entries(&paths::managed_skills_dir());
@@ -70,7 +79,11 @@ pub async fn show_status(verbose: bool, _costs: bool) -> anyhow::Result<()> {
         "Skills:   {} managed, {} user, {} proposed",
         managed, user, proposed
     );
-    eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&skills_str, w), w = w);
+    eprintln!(
+        "\u{2502} {:<w$} \u{2502}",
+        truncate_str(&skills_str, w),
+        w = w
+    );
 
     // ── Daemon status ───────────────────────────────────────────────────
     let daemon_running = crate::infra::daemon::process::is_daemon_running();
@@ -88,7 +101,11 @@ pub async fn show_status(verbose: bool, _costs: bool) -> anyhow::Result<()> {
             let growth = query_growth_stage(&db_path);
             if let Some((stage, name)) = growth {
                 let stage_str = format!("Maturity: Stage {} \u{2014} {}", stage, name);
-                eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&stage_str, w), w = w);
+                eprintln!(
+                    "\u{2502} {:<w$} \u{2502}",
+                    truncate_str(&stage_str, w),
+                    w = w
+                );
             }
 
             eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
@@ -104,19 +121,39 @@ pub async fn show_status(verbose: bool, _costs: bool) -> anyhow::Result<()> {
                 "  Tasks:      {} total ({} completed)",
                 stats.total_tasks, stats.completed_tasks,
             );
-            eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&tasks_line, w), w = w);
+            eprintln!(
+                "\u{2502} {:<w$} \u{2502}",
+                truncate_str(&tasks_line, w),
+                w = w
+            );
 
             let learn_line = format!("  Learnings:  {}", stats.learnings_count);
-            eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&learn_line, w), w = w);
+            eprintln!(
+                "\u{2502} {:<w$} \u{2502}",
+                truncate_str(&learn_line, w),
+                w = w
+            );
 
             let sess_line = format!("  Sessions:   {}", stats.sessions_count);
-            eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&sess_line, w), w = w);
+            eprintln!(
+                "\u{2502} {:<w$} \u{2502}",
+                truncate_str(&sess_line, w),
+                w = w
+            );
 
             if stats.completed_tasks > 0 {
                 let score_line = format!("  Avg score:  {:.1}", stats.avg_score);
-                eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&score_line, w), w = w);
+                eprintln!(
+                    "\u{2502} {:<w$} \u{2502}",
+                    truncate_str(&score_line, w),
+                    w = w
+                );
                 let iter_line = format!("  Avg iters:  {:.1}", stats.avg_iterations);
-                eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&iter_line, w), w = w);
+                eprintln!(
+                    "\u{2502} {:<w$} \u{2502}",
+                    truncate_str(&iter_line, w),
+                    w = w
+                );
             }
 
             eprintln!(
@@ -138,10 +175,18 @@ pub async fn show_status(verbose: bool, _costs: bool) -> anyhow::Result<()> {
                         "  Tokens:     {} in / {} out",
                         cost_stats.total_input_tokens, cost_stats.total_output_tokens,
                     );
-                    eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&tokens_line, w), w = w);
+                    eprintln!(
+                        "\u{2502} {:<w$} \u{2502}",
+                        truncate_str(&tokens_line, w),
+                        w = w
+                    );
 
                     let cost_line = format!("  Total cost: ${:.4}", cost_stats.total_cost);
-                    eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&cost_line, w), w = w);
+                    eprintln!(
+                        "\u{2502} {:<w$} \u{2502}",
+                        truncate_str(&cost_line, w),
+                        w = w
+                    );
 
                     if cost_stats.task_count > 0 {
                         let avg_line = format!(
@@ -150,7 +195,11 @@ pub async fn show_status(verbose: bool, _costs: bool) -> anyhow::Result<()> {
                             (cost_stats.total_input_tokens + cost_stats.total_output_tokens)
                                 / cost_stats.task_count,
                         );
-                        eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&avg_line, w), w = w);
+                        eprintln!(
+                            "\u{2502} {:<w$} \u{2502}",
+                            truncate_str(&avg_line, w),
+                            w = w
+                        );
                     }
 
                     eprintln!(
@@ -170,13 +219,23 @@ pub async fn show_status(verbose: bool, _costs: bool) -> anyhow::Result<()> {
                     last.channel,
                     last.status,
                 );
-                eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&last_line, w), w = w);
+                eprintln!(
+                    "\u{2502} {:<w$} \u{2502}",
+                    truncate_str(&last_line, w),
+                    w = w
+                );
                 if last.total_tokens > 0 {
                     let usage_line = format!(
                         "  {} tokens, ${:.4}  ({})",
-                        last.total_tokens, last.total_cost_usd, format_relative_time(&last.created_at),
+                        last.total_tokens,
+                        last.total_cost_usd,
+                        format_relative_time(&last.created_at),
                     );
-                    eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&usage_line, w), w = w);
+                    eprintln!(
+                        "\u{2502} {:<w$} \u{2502}",
+                        truncate_str(&usage_line, w),
+                        w = w
+                    );
                 }
             }
         }
@@ -185,11 +244,23 @@ pub async fn show_status(verbose: bool, _costs: bool) -> anyhow::Result<()> {
     if verbose {
         eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
         let data_line = format!("Data dir:   {}", paths::data_dir().display());
-        eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&data_line, w), w = w);
+        eprintln!(
+            "\u{2502} {:<w$} \u{2502}",
+            truncate_str(&data_line, w),
+            w = w
+        );
         let conf_line = format!("Config dir: {}", paths::config_dir().display());
-        eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&conf_line, w), w = w);
+        eprintln!(
+            "\u{2502} {:<w$} \u{2502}",
+            truncate_str(&conf_line, w),
+            w = w
+        );
         let sess_line = format!("Sessions:   {}", paths::sessions_dir().display());
-        eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&sess_line, w), w = w);
+        eprintln!(
+            "\u{2502} {:<w$} \u{2502}",
+            truncate_str(&sess_line, w),
+            w = w
+        );
     }
 
     eprintln!("\u{2570}\u{2500}{}\u{2500}\u{256f}", border);
@@ -326,8 +397,6 @@ fn query_growth_stage(db_path: &std::path::Path) -> Option<(u8, String)> {
     let growth = crate::reflect::reflect_growth(&store).ok()?;
     Some((growth.current_stage, growth.stage_name))
 }
-
-
 
 fn format_bytes(bytes: u64) -> String {
     if bytes >= 1_048_576 {

@@ -707,7 +707,10 @@ async fn run_daemon_command(action: Option<DaemonAction>, config: &Config) -> an
                 "start" => DaemonAction::Start,
                 "stop" => DaemonAction::Stop,
                 "status" => DaemonAction::Status,
-                "log" => DaemonAction::Log { lines: 50, follow: false },
+                "log" => DaemonAction::Log {
+                    lines: 50,
+                    follow: false,
+                },
                 _ => unreachable!(),
             }
         }
@@ -842,11 +845,7 @@ async fn run_daemon_command(action: Option<DaemonAction>, config: &Config) -> an
                     let w = 65;
                     let border = "\u{2500}".repeat(w);
                     eprintln!("\u{256d}\u{2500}{}\u{2500}\u{256e}", border);
-                    eprintln!(
-                        "\u{2502} {:<w$} \u{2502}",
-                        "\u{1f4dc} DAEMON LOG",
-                        w = w
-                    );
+                    eprintln!("\u{2502} {:<w$} \u{2502}", "\u{1f4dc} DAEMON LOG", w = w);
                     eprintln!("\u{251c}\u{2500}{}\u{2500}\u{2524}", border);
                     eprintln!(
                         "\u{2502} {:<w$} \u{2502}",
@@ -876,7 +875,7 @@ async fn run_daemon_command(action: Option<DaemonAction>, config: &Config) -> an
 
                 let file = std::fs::File::open(&log_path)?;
                 let reader = std::io::BufReader::new(&file);
-                let all_lines: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
+                let all_lines: Vec<String> = reader.lines().map_while(Result::ok).collect();
                 let start = all_lines.len().saturating_sub(lines);
                 for line in &all_lines[start..] {
                     println!("{}", line);
@@ -907,11 +906,7 @@ async fn run_daemon_command(action: Option<DaemonAction>, config: &Config) -> an
                 let w = 65;
                 let border = "\u{2500}".repeat(w);
                 eprintln!("\u{256d}\u{2500}{}\u{2500}\u{256e}", border);
-                eprintln!(
-                    "\u{2502} {:<w$} \u{2502}",
-                    "\u{1f4dc} DAEMON LOG",
-                    w = w
-                );
+                eprintln!("\u{2502} {:<w$} \u{2502}", "\u{1f4dc} DAEMON LOG", w = w);
                 eprintln!(
                     "\u{2502} {:<w$} \u{2502}",
                     format!("   {}", log_path.display()),
@@ -921,14 +916,10 @@ async fn run_daemon_command(action: Option<DaemonAction>, config: &Config) -> an
 
                 let file = std::fs::File::open(&log_path)?;
                 let reader = std::io::BufReader::new(file);
-                let all_lines: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
+                let all_lines: Vec<String> = reader.lines().map_while(Result::ok).collect();
 
                 if all_lines.is_empty() {
-                    eprintln!(
-                        "\u{2502} {:<w$} \u{2502}",
-                        "Log file is empty.",
-                        w = w
-                    );
+                    eprintln!("\u{2502} {:<w$} \u{2502}", "Log file is empty.", w = w);
                 } else {
                     let start = all_lines.len().saturating_sub(lines);
                     if start > 0 {

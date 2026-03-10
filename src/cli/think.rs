@@ -8,7 +8,7 @@ use std::sync::Arc;
 use crate::core::orchestrator::{Orchestrator, SessionContext};
 use crate::core::parliament::{Deliberation, Parliament};
 use crate::core::safety::SafetyChecker;
-use crate::core::types::{TaskInput};
+use crate::core::types::TaskInput;
 use crate::infra::config::Config;
 use crate::integrations::registry::IntegrationRegistry;
 use crate::learner::skill_selector::SkillSelector;
@@ -61,7 +61,10 @@ pub async fn run_think(
             engine_config.timeout_seconds = secs;
             eprintln!("  ⏱️  Time limit: {}", t);
         } else {
-            eprintln!("  ⚠️  Could not parse --time \"{}\". Expected format: 30s, 5m, 1h", t);
+            eprintln!(
+                "  ⚠️  Could not parse --time \"{}\". Expected format: 30s, 5m, 1h",
+                t
+            );
         }
     }
 
@@ -497,17 +500,17 @@ fn render_escalation(deliberation: &Deliberation) {
 
 /// A single simulated strategy ("future") for the task.
 struct SimulatedFuture {
-    label: String,       // e.g., "Future A: Send now"
-    consequence: String,  // e.g., "3 recipients in CET will see it at 1:55 AM"
+    label: String,         // e.g., "Future A: Send now"
+    consequence: String,   // e.g., "3 recipients in CET will see it at 1:55 AM"
     response_rate: String, // e.g., "LOW (out of hours)"
-    risk: String,         // e.g., "Looks like you forgot timezone"
+    risk: String,          // e.g., "Looks like you forgot timezone"
 }
 
 /// The recommendation synthesised from all futures.
 struct ChessRecommendation {
-    chosen: String,       // e.g., "Future B (schedule for CET morning)"
-    champion: String,     // e.g., "Empath (\"don't look careless about timezone\")"
-    dissent: String,      // e.g., "Economist (\"just send it now, saves time\")"
+    chosen: String,   // e.g., "Future B (schedule for CET morning)"
+    champion: String, // e.g., "Empath (\"don't look careless about timezone\")"
+    dissent: String,  // e.g., "Economist (\"just send it now, saves time\")"
 }
 
 /// Generate 2-3 alternative strategies and a recommendation via LLM.
@@ -690,15 +693,17 @@ async fn render_chess_mode(
     eprintln!("│{:width$}│", "", width = width + 2);
 
     // Generate futures via LLM
-    match generate_chess_futures(provider, model_id, task_description, directive, deliberation)
-        .await
+    match generate_chess_futures(
+        provider,
+        model_id,
+        task_description,
+        directive,
+        deliberation,
+    )
+    .await
     {
         Some((futures, rec)) => {
-            eprintln!(
-                "│ {:<width$} │",
-                "Simulated futures:",
-                width = width
-            );
+            eprintln!("│ {:<width$} │", "Simulated futures:", width = width);
             eprintln!("│{:width$}│", "", width = width + 2);
 
             for future in &futures {

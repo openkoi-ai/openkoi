@@ -16,6 +16,7 @@ use crate::util::truncate_display as truncate_str;
 /// - EXPLICIT: raw SOUL.md content
 /// - LEARNED: trust domains, top high-confidence learnings
 /// - TRAJECTORY: inferred direction from recent learnings
+///
 /// Plus a metadata footer (maturity stage, soul age, interaction count).
 pub fn run_show(store: &Store) -> anyhow::Result<()> {
     let soul = loader::load_soul();
@@ -114,14 +115,12 @@ pub fn run_show(store: &Store) -> anyhow::Result<()> {
         }
     }
 
-    eprintln!(
-        "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
-        "",
-        iw = w - 4
-    );
+    eprintln!("\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}", "", iw = w - 4);
 
     // Top high-confidence learnings
-    let learnings = store.query_high_confidence_learnings(0.7, 5).unwrap_or_default();
+    let learnings = store
+        .query_high_confidence_learnings(0.7, 5)
+        .unwrap_or_default();
     if learnings.is_empty() {
         eprintln!(
             "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
@@ -259,21 +258,15 @@ pub fn run_show(store: &Store) -> anyhow::Result<()> {
     // Count total interactions (usage events)
     let interaction_count: i64 = store
         .conn()
-        .query_row(
-            "SELECT COUNT(*) FROM usage_events",
-            [],
-            |r| r.get(0),
-        )
+        .query_row("SELECT COUNT(*) FROM usage_events", [], |r| r.get(0))
         .unwrap_or(0);
 
     // Soul age: first usage event date vs now
     let soul_age = store
         .conn()
-        .query_row(
-            "SELECT MIN(timestamp) FROM usage_events",
-            [],
-            |r| r.get::<_, Option<String>>(0),
-        )
+        .query_row("SELECT MIN(timestamp) FROM usage_events", [], |r| {
+            r.get::<_, Option<String>>(0)
+        })
         .unwrap_or(None)
         .and_then(|ts| {
             chrono::NaiveDateTime::parse_from_str(&ts, "%Y-%m-%dT%H:%M:%S%.f%z")
@@ -294,21 +287,13 @@ pub fn run_show(store: &Store) -> anyhow::Result<()> {
         .unwrap_or_else(|| "new".into());
 
     let meta1 = format!("Maturity: {}  |  Soul age: {}", stage_str, soul_age);
-    eprintln!(
-        "\u{2502} {:<w$} \u{2502}",
-        truncate_str(&meta1, w),
-        w = w
-    );
+    eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&meta1, w), w = w);
 
     let meta2 = format!(
         "Interactions: {}  |  Learnings: {}",
         interaction_count, learnings_count,
     );
-    eprintln!(
-        "\u{2502} {:<w$} \u{2502}",
-        truncate_str(&meta2, w),
-        w = w
-    );
+    eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&meta2, w), w = w);
 
     eprintln!("\u{2570}\u{2500}{}\u{2500}\u{256f}", border);
 
@@ -394,7 +379,8 @@ pub fn run_diff(store: &Store) -> anyhow::Result<()> {
             let related_soul_line = soul.raw.lines().find(|line| {
                 let ll = line.to_lowercase();
                 // Match if they share 2+ significant words
-                content_lower.split_whitespace()
+                content_lower
+                    .split_whitespace()
                     .filter(|w| w.len() > 3)
                     .any(|w| ll.contains(w))
             });
@@ -402,20 +388,28 @@ pub fn run_diff(store: &Store) -> anyhow::Result<()> {
             if is_anti {
                 // Anti-pattern: suggest removal/change
                 if let Some(old_line) = related_soul_line {
-                    let old = format!("{}  - \"{}\"", num, truncate_str(old_line.trim(), content_w - 8));
+                    let old = format!(
+                        "{}  - \"{}\"",
+                        num,
+                        truncate_str(old_line.trim(), content_w - 8)
+                    );
                     eprintln!(
                         "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
                         truncate_str(&old, inner_w - 3),
                         iw = inner_w - 1
                     );
-                    let new = format!("      + (remove \u{2014} contradicted by experience)");
+                    let new = "      + (remove \u{2014} contradicted by experience)".to_string();
                     eprintln!(
                         "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
                         truncate_str(&new, inner_w - 3),
                         iw = inner_w - 1
                     );
                 } else {
-                    let line = format!("{}[anti-pattern] {}", num, truncate_str(&l.content, content_w - 16));
+                    let line = format!(
+                        "{}[anti-pattern] {}",
+                        num,
+                        truncate_str(&l.content, content_w - 16)
+                    );
                     eprintln!(
                         "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
                         truncate_str(&line, inner_w - 3),
@@ -425,7 +419,11 @@ pub fn run_diff(store: &Store) -> anyhow::Result<()> {
             } else {
                 // Heuristic/insight: suggest addition or modification
                 if let Some(old_line) = related_soul_line {
-                    let old = format!("{}  - \"{}\"", num, truncate_str(old_line.trim(), content_w - 8));
+                    let old = format!(
+                        "{}  - \"{}\"",
+                        num,
+                        truncate_str(old_line.trim(), content_w - 8)
+                    );
                     eprintln!(
                         "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
                         truncate_str(&old, inner_w - 3),
@@ -438,7 +436,11 @@ pub fn run_diff(store: &Store) -> anyhow::Result<()> {
                         iw = inner_w - 1
                     );
                 } else {
-                    let line = format!("{}+ NEW: \"{}\"", num, truncate_str(&l.content, content_w - 10));
+                    let line = format!(
+                        "{}+ NEW: \"{}\"",
+                        num,
+                        truncate_str(&l.content, content_w - 10)
+                    );
                     eprintln!(
                         "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
                         truncate_str(&line, inner_w - 3),
@@ -466,10 +468,7 @@ pub fn run_diff(store: &Store) -> anyhow::Result<()> {
         }
 
         let close_border = "\u{2500}".repeat(inner_w - 1);
-        eprintln!(
-            "\u{2502} \u{2514}{}\u{2518} \u{2502}",
-            close_border
-        );
+        eprintln!("\u{2502} \u{2514}{}\u{2518} \u{2502}", close_border);
 
         eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
         eprintln!(
@@ -558,8 +557,18 @@ pub fn run_history(store: &Store) -> anyhow::Result<()> {
 
         // Date header with timeline marker
         let date_relative = crate::util::format_relative_time(&format!("{}T00:00:00Z", date));
-        let date_header = format!("  \u{2523}\u{2501}\u{2501} {} ({}) \u{2014} {} event{}", date, date_relative, items.len(), if items.len() == 1 { "" } else { "s" });
-        eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&date_header, w), w = w);
+        let date_header = format!(
+            "  \u{2523}\u{2501}\u{2501} {} ({}) \u{2014} {} event{}",
+            date,
+            date_relative,
+            items.len(),
+            if items.len() == 1 { "" } else { "s" }
+        );
+        eprintln!(
+            "\u{2502} {:<w$} \u{2502}",
+            truncate_str(&date_header, w),
+            w = w
+        );
 
         for (i, l) in items.iter().enumerate() {
             let is_last_item = i == items.len() - 1;
@@ -589,12 +598,19 @@ pub fn run_history(store: &Store) -> anyhow::Result<()> {
             let line = if time_str.is_empty() {
                 format!(
                     "  \u{2503} {} {} {} ({})",
-                    connector, icon, truncate_str(&l.content, 40), l.learning_type,
+                    connector,
+                    icon,
+                    truncate_str(&l.content, 40),
+                    l.learning_type,
                 )
             } else {
                 format!(
                     "  \u{2503} {} {} {} {} ({})",
-                    connector, time_str, icon, truncate_str(&l.content, 34), l.learning_type,
+                    connector,
+                    time_str,
+                    icon,
+                    truncate_str(&l.content, 34),
+                    l.learning_type,
                 )
             };
             eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&line, w), w = w);
@@ -617,7 +633,8 @@ pub fn run_history(store: &Store) -> anyhow::Result<()> {
     eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
 
     // Type breakdown summary at bottom
-    let mut type_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut type_counts: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
     for l in &learnings {
         *type_counts.entry(l.learning_type.clone()).or_default() += 1;
     }
@@ -625,7 +642,11 @@ pub fn run_history(store: &Store) -> anyhow::Result<()> {
     types.sort_by(|a, b| b.1.cmp(&a.1));
     let breakdown: Vec<String> = types.iter().map(|(t, c)| format!("{} {}", c, t)).collect();
     let breakdown_line = format!("  Breakdown: {}", breakdown.join(" \u{2502} "));
-    eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&breakdown_line, w), w = w);
+    eprintln!(
+        "\u{2502} {:<w$} \u{2502}",
+        truncate_str(&breakdown_line, w),
+        w = w
+    );
 
     eprintln!("\u{2570}\u{2500}{}\u{2500}\u{256f}", border);
 
@@ -716,7 +737,12 @@ pub async fn run_evolve() -> anyhow::Result<()> {
             // Interactive approval: [y]es / [n]o / [r]eview each / [e]dit
             let choice = inquire::Select::new(
                 "Apply this soul evolution?",
-                vec!["Yes — apply all changes", "No — discard", "Review each change", "Edit — open in $EDITOR"],
+                vec![
+                    "Yes — apply all changes",
+                    "No — discard",
+                    "Review each change",
+                    "Edit — open in $EDITOR",
+                ],
             )
             .with_help_message(&format!("Writes to {}", paths::soul_path().display()))
             .prompt()
@@ -733,17 +759,19 @@ pub async fn run_evolve() -> anyhow::Result<()> {
                     let mut i = 0;
                     while i < diff_lines.len() {
                         let line = diff_lines[i];
-                        if line.starts_with("- ") {
-                            let removed = Some(line[2..].to_string());
-                            let added = if i + 1 < diff_lines.len() && diff_lines[i + 1].starts_with("+ ") {
+                        if let Some(stripped) = line.strip_prefix("- ") {
+                            let removed = Some(stripped.to_string());
+                            let added = if i + 1 < diff_lines.len()
+                                && diff_lines[i + 1].starts_with("+ ")
+                            {
                                 i += 1;
                                 Some(diff_lines[i][2..].to_string())
                             } else {
                                 None
                             };
                             hunks.push((removed, added));
-                        } else if line.starts_with("+ ") {
-                            hunks.push((None, Some(line[2..].to_string())));
+                        } else if let Some(stripped) = line.strip_prefix("+ ") {
+                            hunks.push((None, Some(stripped.to_string())));
                         }
                         i += 1;
                     }
@@ -813,9 +841,7 @@ pub async fn run_evolve() -> anyhow::Result<()> {
                         .unwrap_or_else(|_| "vi".to_string());
 
                     eprintln!("  Opening proposed soul in {}...", editor);
-                    let status = std::process::Command::new(&editor)
-                        .arg(&tmp_path)
-                        .status();
+                    let status = std::process::Command::new(&editor).arg(&tmp_path).status();
 
                     match status {
                         Ok(s) if s.success() => {
@@ -868,5 +894,3 @@ fn write_soul_update(proposed: &str) -> anyhow::Result<()> {
     eprintln!("  Soul evolved and saved to {}", soul_path.display());
     Ok(())
 }
-
-

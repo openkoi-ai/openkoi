@@ -32,7 +32,7 @@ pub struct Orchestrator {
     eval_cache: EvalCache,
     safety: SafetyChecker,
     cost_tracker: CostTracker,
-        config: IterationConfig,
+    config: IterationConfig,
     /// The model's context window size in tokens (0 = unknown, skip safe-context checks).
     context_window: u32,
     /// Actual model IDs for cost tracking (from ModelRoles).
@@ -64,7 +64,7 @@ impl Orchestrator {
     pub fn new(
         provider: Arc<dyn ModelProvider>,
         roles: ModelRoles,
-    config: IterationConfig,
+        config: IterationConfig,
         safety: SafetyChecker,
         skill_registry: Arc<SkillRegistry>,
         store: Option<StoreHandle>,

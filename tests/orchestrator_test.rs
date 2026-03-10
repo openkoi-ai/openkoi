@@ -8,7 +8,7 @@ use std::pin::Pin;
 
 use openkoi::core::orchestrator::{Orchestrator, SessionContext};
 use openkoi::core::safety::SafetyChecker;
-use openkoi::core::types::{TaskInput};
+use openkoi::core::types::TaskInput;
 use openkoi::infra::config::{IterationConfig, SafetyConfig};
 use openkoi::memory::recall::HistoryRecall;
 use openkoi::provider::roles::ModelRoles;
