@@ -191,6 +191,8 @@ jobs:
         run: |
           echo "macos_arm64=$(awk '{print $1}' checksums/openkoi-macos-arm64.tar.gz.sha256)" >> "$GITHUB_OUTPUT"
           echo "macos_x86_64=$(awk '{print $1}' checksums/openkoi-macos-x86_64.tar.gz.sha256)" >> "$GITHUB_OUTPUT"
+          echo "linux_arm64=$(awk '{print $1}' checksums/openkoi-linux-arm64.tar.gz.sha256)" >> "$GITHUB_OUTPUT"
+          echo "linux_x86_64=$(awk '{print $1}' checksums/openkoi-linux-x86_64.tar.gz.sha256)" >> "$GITHUB_OUTPUT"
 
       - name: Checkout Homebrew tap
         uses: actions/checkout@v4
@@ -201,8 +203,10 @@ jobs:
       - name: Update formula
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          SHA_ARM64="${{ steps.sha.outputs.macos_arm64 }}"
-          SHA_X86_64="${{ steps.sha.outputs.macos_x86_64 }}"
+          SHA_MACOS_ARM64="${{ steps.sha.outputs.macos_arm64 }}"
+          SHA_MACOS_X86_64="${{ steps.sha.outputs.macos_x86_64 }}"
+          SHA_LINUX_ARM64="${{ steps.sha.outputs.linux_arm64 }}"
+          SHA_LINUX_X86_64="${{ steps.sha.outputs.linux_x86_64 }}"
 
           # Write formula — quoted heredoc preserves Ruby #{} interpolation literally
           cat > Formula/openkoi.rb <<'FORMULA'
@@ -215,11 +219,22 @@ jobs:
             on_macos do
               on_arm do
                 url "https://github.com/openkoi-ai/openkoi/releases/download/v#{version}/openkoi-macos-arm64.tar.gz"
-                sha256 "___SHA_ARM64___"
+                sha256 "___SHA_MACOS_ARM64___"
               end
               on_intel do
                 url "https://github.com/openkoi-ai/openkoi/releases/download/v#{version}/openkoi-macos-x86_64.tar.gz"
-                sha256 "___SHA_X86_64___"
+                sha256 "___SHA_MACOS_X86_64___"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "https://github.com/openkoi-ai/openkoi/releases/download/v#{version}/openkoi-linux-arm64.tar.gz"
+                sha256 "___SHA_LINUX_ARM64___"
+              end
+              on_intel do
+                url "https://github.com/openkoi-ai/openkoi/releases/download/v#{version}/openkoi-linux-x86_64.tar.gz"
+                sha256 "___SHA_LINUX_X86_64___"
               end
             end
 
@@ -235,8 +250,10 @@ jobs:
 
           # Replace placeholders with actual values
           sed -i "s/___VERSION___/${VERSION}/g" Formula/openkoi.rb
-          sed -i "s/___SHA_ARM64___/${SHA_ARM64}/g" Formula/openkoi.rb
-          sed -i "s/___SHA_X86_64___/${SHA_X86_64}/g" Formula/openkoi.rb
+          sed -i "s/___SHA_MACOS_ARM64___/${SHA_MACOS_ARM64}/g" Formula/openkoi.rb
+          sed -i "s/___SHA_MACOS_X86_64___/${SHA_MACOS_X86_64}/g" Formula/openkoi.rb
+          sed -i "s/___SHA_LINUX_ARM64___/${SHA_LINUX_ARM64}/g" Formula/openkoi.rb
+          sed -i "s/___SHA_LINUX_X86_64___/${SHA_LINUX_X86_64}/g" Formula/openkoi.rb
 
       - name: Commit and push
         run: |
