@@ -164,3 +164,85 @@ jobs:
         run: cargo publish --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  # Update Homebrew formula in openkoi-ai/homebrew-openkoi
+  homebrew:
+    name: Update Homebrew formula
+    runs-on: ubuntu-latest
+    needs: release
+    if: "!contains(github.ref, 'beta') && !contains(github.ref, 'rc')"
+
+    steps:
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download checksums from release
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN_OPENKOI }}
+        run: |
+          gh release download "v${{ steps.version.outputs.version }}" \
+            --repo openkoi-ai/openkoi \
+            --pattern "*.sha256" \
+            --dir checksums
+
+      - name: Parse SHA256 values
+        id: sha
+        run: |
+          echo "macos_arm64=$(awk '{print $1}' checksums/openkoi-macos-arm64.tar.gz.sha256)" >> "$GITHUB_OUTPUT"
+          echo "macos_x86_64=$(awk '{print $1}' checksums/openkoi-macos-x86_64.tar.gz.sha256)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: openkoi-ai/homebrew-openkoi
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN_OPENKOI }}
+
+      - name: Update formula
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          SHA_ARM64="${{ steps.sha.outputs.macos_arm64 }}"
+          SHA_X86_64="${{ steps.sha.outputs.macos_x86_64 }}"
+
+          # Write formula — quoted heredoc preserves Ruby #{} interpolation literally
+          cat > Formula/openkoi.rb <<'FORMULA'
+          class Openkoi < Formula
+            desc "Executive Function as a Service. AI agent that thinks before it acts."
+            homepage "https://openkoi.ai"
+            version "___VERSION___"
+            license "MIT"
+
+            on_macos do
+              on_arm do
+                url "https://github.com/openkoi-ai/openkoi/releases/download/v#{version}/openkoi-macos-arm64.tar.gz"
+                sha256 "___SHA_ARM64___"
+              end
+              on_intel do
+                url "https://github.com/openkoi-ai/openkoi/releases/download/v#{version}/openkoi-macos-x86_64.tar.gz"
+                sha256 "___SHA_X86_64___"
+              end
+            end
+
+            def install
+              bin.install "openkoi"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/openkoi --version")
+            end
+          end
+          FORMULA
+
+          # Replace placeholders with actual values
+          sed -i "s/___VERSION___/${VERSION}/g" Formula/openkoi.rb
+          sed -i "s/___SHA_ARM64___/${SHA_ARM64}/g" Formula/openkoi.rb
+          sed -i "s/___SHA_X86_64___/${SHA_X86_64}/g" Formula/openkoi.rb
+
+      - name: Commit and push
+        run: |
+          git config user.name "openkoi[bot]"
+          git config user.email "openkoi[bot]@openkoi.ai"
+          git add Formula/openkoi.rb
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "openkoi ${{ steps.version.outputs.version }}"
+          git push
