@@ -264,11 +264,66 @@ pub fn run_growth(store: &Store) -> anyhow::Result<()> {
         eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&line, w), w = w);
     }
 
+    // Estimated unlock time
+    if let Some(weeks) = g.estimated_unlock_weeks {
+        eprintln!("\u{2502} {:<w$} \u{2502}", "", w = w + 2);
+        let est = if weeks < 1.0 {
+            "Estimated unlock: ~a few days at current interaction rate".to_string()
+        } else if weeks < 2.0 {
+            "Estimated unlock: ~1 week at current interaction rate".to_string()
+        } else {
+            format!(
+                "Estimated unlock: ~{} weeks at current interaction rate",
+                weeks.round() as u32
+            )
+        };
+        eprintln!(
+            "\u{2502} {:<w$} \u{2502}",
+            truncate_str(&format!("  {}", est), w),
+            w = w
+        );
+    }
+
     eprintln!(
         "\u{2502} {:<w$} \u{2502}",
         "\u{2514}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2518}",
         w = w
     );
+
+    // Next stage unlock conditions (if not at max stage)
+    if !g.next_stage_conditions.is_empty() {
+        let next_stage = g.current_stage + 1;
+        let next_name = g
+            .stages
+            .iter()
+            .find(|s| s.number == next_stage)
+            .map(|s| s.name.as_str())
+            .unwrap_or("Next");
+        eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
+        let next_title = format!(
+            "\u{250c}\u{2500} STAGE {} ({}) UNLOCK CONDITIONS \u{2500}",
+            next_stage, next_name,
+        );
+        // Pad to fill the inner box width
+        let pad_len = 52_usize.saturating_sub(next_title.chars().count());
+        let padded_title = format!("{}{}\u{2510}", next_title, "\u{2500}".repeat(pad_len));
+        eprintln!(
+            "\u{2502} {:<w$} \u{2502}",
+            truncate_str(&padded_title, w),
+            w = w
+        );
+
+        for cond in &g.next_stage_conditions {
+            let line = format!("  \u{2022} {}", cond);
+            eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&line, w), w = w);
+        }
+
+        eprintln!(
+            "\u{2502} {:<w$} \u{2502}",
+            "\u{2514}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2518}",
+            w = w
+        );
+    }
 
     eprintln!("\u{2570}\u{2500}{}\u{2500}\u{256f}", border);
 

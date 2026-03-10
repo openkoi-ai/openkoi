@@ -5,6 +5,7 @@
 // mirror and asks: "Where was I wrong? What did I learn?"
 
 use crate::memory::store::{Store, UsageEventRow};
+use chrono;
 use serde::{Deserialize, Serialize};
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -74,6 +75,10 @@ pub struct GrowthReport {
     pub stage_progress: f64,
     pub stages: Vec<StageInfo>,
     pub unlock_conditions: Vec<UnlockCondition>,
+    /// Estimated weeks to unlock next stage (None if already at max stage or insufficient data)
+    pub estimated_unlock_weeks: Option<f64>,
+    /// Conditions required to unlock the next stage beyond current
+    pub next_stage_conditions: Vec<String>,
 }
 
 /// Info about a maturity stage.
@@ -453,6 +458,76 @@ pub fn reflect_growth(store: &Store) -> anyhow::Result<GrowthReport> {
         _ => vec![],
     };
 
+    // Estimate unlock time based on learning accumulation rate
+    let estimated_unlock_weeks = if current_stage >= 4 {
+        None // Already at max stage
+    } else {
+        // Compute rate: learnings per week based on created_at timestamps
+        let now = chrono::Utc::now();
+        let oldest_learning = all_learnings
+            .iter()
+            .filter_map(|l| {
+                chrono::NaiveDateTime::parse_from_str(&l.created_at, "%Y-%m-%d %H:%M:%S")
+                    .ok()
+                    .or_else(|| {
+                        chrono::DateTime::parse_from_rfc3339(&l.created_at)
+                            .ok()
+                            .map(|dt| dt.naive_utc())
+                    })
+            })
+            .min();
+
+        match oldest_learning {
+            Some(oldest) if learnings_count > 1 => {
+                let days_active = (now.naive_utc() - oldest).num_days().max(1) as f64;
+                let learnings_per_week = (learnings_count as f64 / days_active) * 7.0;
+
+                if learnings_per_week < 0.1 {
+                    None // Too slow to estimate
+                } else {
+                    // How many more learnings are needed?
+                    let remaining = match current_stage {
+                        1 => (10_u32.saturating_sub(learnings_count)) as f64,
+                        2 => {
+                            // Need both patterns and high-confidence learnings
+                            let patterns_needed = 5_usize.saturating_sub(patterns.len()) as f64;
+                            let hc_needed = 10_usize.saturating_sub(
+                                all_learnings.iter().filter(|l| l.confidence >= 0.8).count(),
+                            ) as f64;
+                            // Rough estimate: each additional learning has some chance of being high-confidence
+                            (patterns_needed + hc_needed).max(1.0) * 2.0
+                        }
+                        3 => (100_u32.saturating_sub(learnings_count)) as f64,
+                        _ => 0.0,
+                    };
+                    let weeks = remaining / learnings_per_week;
+                    Some(weeks.max(0.5)) // At least half a week
+                }
+            }
+            _ => None, // No data to estimate
+        }
+    };
+
+    // Next stage unlock conditions
+    let next_stage_conditions = match current_stage {
+        1 => vec![
+            "Detect 5+ usage patterns".to_string(),
+            "10+ high-confidence learnings (confidence >= 0.8)".to_string(),
+            "Parliament deliberation working".to_string(),
+        ],
+        2 => vec![
+            "90% judgment accuracy over 30 days".to_string(),
+            "At least 3 domains with HIGH trust level".to_string(),
+            "Soul Evolution accepted 5+ times".to_string(),
+        ],
+        3 => vec![
+            "Full Trajectory Model validated by human".to_string(),
+            "Consistent autonomous operation for 30+ days".to_string(),
+            "Zero guardian escalation overrides in 14 days".to_string(),
+        ],
+        _ => vec![],
+    };
+
     Ok(GrowthReport {
         current_stage,
         stage_name: stages
@@ -463,6 +538,8 @@ pub fn reflect_growth(store: &Store) -> anyhow::Result<GrowthReport> {
         stage_progress,
         stages,
         unlock_conditions,
+        estimated_unlock_weeks,
+        next_stage_conditions,
     })
 }
 

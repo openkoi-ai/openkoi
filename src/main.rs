@@ -342,6 +342,8 @@ async fn run() -> anyhow::Result<()> {
             ref task,
             simulate,
             verbose,
+            budget,
+            ref time,
         }) => {
             let task_desc = if task.is_empty() {
                 // Interactive prompt
@@ -371,6 +373,8 @@ async fn run() -> anyhow::Result<()> {
                 integrations.as_ref(),
                 simulate,
                 verbose,
+                budget,
+                time.clone(),
             )
             .await;
             mcp_manager.shutdown_all().await;
@@ -693,7 +697,7 @@ async fn run_daemon_command(action: Option<DaemonAction>, config: &Config) -> an
         Some(a) => a,
         None => {
             // Interactive picker
-            let options = vec!["start", "stop", "status"];
+            let options = vec!["start", "stop", "status", "log"];
             let choice = inquire::Select::new("Daemon action:", options)
                 .prompt()
                 .map_err(|_| anyhow::anyhow!("Selection cancelled"))?;
@@ -701,6 +705,7 @@ async fn run_daemon_command(action: Option<DaemonAction>, config: &Config) -> an
                 "start" => DaemonAction::Start,
                 "stop" => DaemonAction::Stop,
                 "status" => DaemonAction::Status,
+                "log" => DaemonAction::Log { lines: 50, follow: false },
                 _ => unreachable!(),
             }
         }
@@ -816,6 +821,139 @@ async fn run_daemon_command(action: Option<DaemonAction>, config: &Config) -> an
                 println!("Daemon is not running.");
             }
             Ok(())
+        }
+        DaemonAction::Log { lines, follow } => {
+            use std::io::{BufRead, Seek};
+
+            // Look for daemon log file in data dir
+            let data_dir = openkoi::infra::paths::data_dir();
+            let log_candidates = [
+                data_dir.join("daemon.log"),
+                data_dir.join("openkoi-daemon.log"),
+            ];
+
+            let log_path = log_candidates.iter().find(|p| p.exists());
+
+            let log_path = match log_path {
+                Some(p) => p.clone(),
+                None => {
+                    let w = 65;
+                    let border = "\u{2500}".repeat(w);
+                    eprintln!("\u{256d}\u{2500}{}\u{2500}\u{256e}", border);
+                    eprintln!(
+                        "\u{2502} {:<w$} \u{2502}",
+                        "\u{1f4dc} DAEMON LOG",
+                        w = w
+                    );
+                    eprintln!("\u{251c}\u{2500}{}\u{2500}\u{2524}", border);
+                    eprintln!(
+                        "\u{2502} {:<w$} \u{2502}",
+                        "No daemon log file found.",
+                        w = w
+                    );
+                    eprintln!(
+                        "\u{2502} {:<w$} \u{2502}",
+                        format!("Expected at: {}", data_dir.join("daemon.log").display()),
+                        w = w
+                    );
+                    eprintln!(
+                        "\u{2502} {:<w$} \u{2502}",
+                        "Start the daemon first: openkoi daemon start",
+                        w = w
+                    );
+                    eprintln!("\u{2570}\u{2500}{}\u{2500}\u{256f}", border);
+                    return Ok(());
+                }
+            };
+
+            if follow {
+                // Tail -f mode: print last N lines then follow
+                eprintln!("\u{1f4dc} Following daemon log (Ctrl+C to stop)...");
+                eprintln!("   {}", log_path.display());
+                eprintln!();
+
+                let file = std::fs::File::open(&log_path)?;
+                let reader = std::io::BufReader::new(&file);
+                let all_lines: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
+                let start = all_lines.len().saturating_sub(lines);
+                for line in &all_lines[start..] {
+                    println!("{}", line);
+                }
+
+                // Follow new lines
+                let mut file = std::fs::File::open(&log_path)?;
+                file.seek(std::io::SeekFrom::End(0))?;
+                let mut reader = std::io::BufReader::new(file);
+                loop {
+                    let mut line = String::new();
+                    match reader.read_line(&mut line) {
+                        Ok(0) => {
+                            std::thread::sleep(std::time::Duration::from_millis(200));
+                        }
+                        Ok(_) => {
+                            print!("{}", line);
+                        }
+                        Err(e) => {
+                            eprintln!("Error reading log: {}", e);
+                            break;
+                        }
+                    }
+                }
+                Ok(())
+            } else {
+                // Show last N lines
+                let w = 65;
+                let border = "\u{2500}".repeat(w);
+                eprintln!("\u{256d}\u{2500}{}\u{2500}\u{256e}", border);
+                eprintln!(
+                    "\u{2502} {:<w$} \u{2502}",
+                    "\u{1f4dc} DAEMON LOG",
+                    w = w
+                );
+                eprintln!(
+                    "\u{2502} {:<w$} \u{2502}",
+                    format!("   {}", log_path.display()),
+                    w = w
+                );
+                eprintln!("\u{251c}\u{2500}{}\u{2500}\u{2524}", border);
+
+                let file = std::fs::File::open(&log_path)?;
+                let reader = std::io::BufReader::new(file);
+                let all_lines: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
+
+                if all_lines.is_empty() {
+                    eprintln!(
+                        "\u{2502} {:<w$} \u{2502}",
+                        "Log file is empty.",
+                        w = w
+                    );
+                } else {
+                    let start = all_lines.len().saturating_sub(lines);
+                    if start > 0 {
+                        let skipped = format!("  ... ({} earlier lines omitted)", start);
+                        eprintln!("\u{2502} {:<w$} \u{2502}", skipped, w = w);
+                        eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
+                    }
+                    for line in &all_lines[start..] {
+                        // Truncate long log lines
+                        let display = if line.len() > w {
+                            format!("{}...", &line[..w - 3])
+                        } else {
+                            line.to_string()
+                        };
+                        eprintln!("\u{2502} {:<w$} \u{2502}", display, w = w);
+                    }
+                }
+
+                eprintln!("\u{2570}\u{2500}{}\u{2500}\u{256f}", border);
+
+                if !daemon::is_daemon_running() {
+                    eprintln!();
+                    eprintln!("  Note: Daemon is not currently running.");
+                }
+
+                Ok(())
+            }
         }
     }
 }

@@ -39,12 +39,30 @@ pub async fn run_think(
     integrations: Option<&IntegrationRegistry>,
     simulate: bool,
     verbose: bool,
+    budget: Option<f64>,
+    time: Option<String>,
 ) -> anyhow::Result<()> {
     let task = TaskInput::new(task_description);
 
     let mut engine_config = IterationEngineConfig::from(&config.iteration);
     engine_config.max_iterations = max_iterations;
     engine_config.quality_threshold = quality_threshold;
+
+    // Apply --budget override: cap max cost in USD
+    if let Some(b) = budget {
+        // We'll apply this to the safety checker below
+        eprintln!("  💰 Budget cap: ${:.2}", b);
+    }
+
+    // Apply --time override: parse duration string and cap timeout
+    if let Some(ref t) = time {
+        if let Some(secs) = parse_duration_str(t) {
+            engine_config.timeout = std::time::Duration::from_secs(secs);
+            eprintln!("  ⏱️  Time limit: {}", t);
+        } else {
+            eprintln!("  ⚠️  Could not parse --time \"{}\". Expected format: 30s, 5m, 1h", t);
+        }
+    }
 
     // Load soul
     let soul = loader::load_soul();
@@ -108,7 +126,20 @@ pub async fn run_think(
     }
 
     // ─── Phase 3: Execute (standard PEER loop) ──────────────────────────────
-    let safety = SafetyChecker::from_config(&config.iteration, &config.safety);
+    let mut safety = SafetyChecker::from_config(&config.iteration, &config.safety);
+
+    // Apply --budget override to safety checker
+    if let Some(b) = budget {
+        safety.max_cost_usd = b;
+    }
+
+    // Apply --time override to safety checker
+    if let Some(ref t) = time {
+        if let Some(secs) = parse_duration_str(t) {
+            safety.max_duration_secs = secs;
+        }
+    }
+
     let skill_registry = Arc::new(SkillRegistry::new());
     let selector = SkillSelector::new();
 
@@ -214,6 +245,46 @@ pub async fn run_think(
     }
 
     Ok(())
+}
+
+// ─── Duration Parsing ───────────────────────────────────────────────────────
+
+/// Parse a human-readable duration string like "30s", "5m", "1h", "2h30m" into seconds.
+fn parse_duration_str(s: &str) -> Option<u64> {
+    let s = s.trim().to_lowercase();
+    if s.is_empty() {
+        return None;
+    }
+
+    let mut total_secs: u64 = 0;
+    let mut num_buf = String::new();
+
+    for ch in s.chars() {
+        if ch.is_ascii_digit() {
+            num_buf.push(ch);
+        } else {
+            let num: u64 = num_buf.parse().ok()?;
+            num_buf.clear();
+            match ch {
+                'h' => total_secs += num * 3600,
+                'm' => total_secs += num * 60,
+                's' => total_secs += num,
+                _ => return None,
+            }
+        }
+    }
+
+    // Handle bare number (no suffix) — treat as seconds
+    if !num_buf.is_empty() {
+        let num: u64 = num_buf.parse().ok()?;
+        total_secs += num;
+    }
+
+    if total_secs == 0 {
+        None
+    } else {
+        Some(total_secs)
+    }
 }
 
 // ─── Rendering ──────────────────────────────────────────────────────────────

@@ -325,47 +325,53 @@ pub fn run_diff(store: &Store) -> anyhow::Result<()> {
     eprintln!("\u{256d}\u{2500}{}\u{2500}\u{256e}", border);
     eprintln!(
         "\u{2502} {:<w$} \u{2502}",
-        "\u{1f9ec} SOUL DIFF \u{2014} Potential evolution",
+        "\u{1f9ec} SOUL DIFF \u{2014} Proposed changes with evidence",
         w = w
     );
     eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
 
-    let high_conf = learnings.iter().filter(|l| l.confidence >= 0.8).count();
-    let anti_patterns = learnings
+    let high_conf: Vec<_> = learnings.iter().filter(|l| l.confidence >= 0.7).collect();
+    let anti_patterns: Vec<_> = learnings
         .iter()
         .filter(|l| l.learning_type == "anti_pattern")
-        .count();
+        .collect();
 
     let summary = format!(
-        "Learnings available: {} total, {} high-confidence, {} anti-patterns",
+        "Analyzing {} learnings ({} high-confidence, {} anti-patterns)",
         learnings.len(),
-        high_conf,
-        anti_patterns,
+        high_conf.len(),
+        anti_patterns.len(),
     );
     eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&summary, w), w = w);
     eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
 
     if learnings.len() < 10 {
         let msg = format!(
-            "Not enough signal to evolve yet (need 10+ learnings, have {}).",
+            "Not enough signal to evolve yet (need 10+, have {}).",
             learnings.len()
         );
         eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&msg, w), w = w);
         eprintln!(
             "\u{2502} {:<w$} \u{2502}",
-            "Run `openkoi soul evolve` when ready to generate proposals.",
+            "Run `openkoi soul evolve` when ready.",
             w = w
         );
     } else {
+        // Show proposed changes as diff-style entries
+        let inner_w = w - 4; // ┌─ ... ─┐ border inset
+        let inner_border = "\u{2500}".repeat(inner_w - 1);
         eprintln!(
-            "\u{2502} {:<w$} \u{2502}",
-            "Ready for evolution. Top signals:",
-            w = w
+            "\u{2502} \u{250c}\u{2500} PROPOSED CHANGES {}\u{2510} \u{2502}",
+            &inner_border[..inner_border.len().saturating_sub(19)]
         );
-        eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
+        eprintln!(
+            "\u{2502} \u{2502}{:iw$}\u{2502} \u{2502}",
+            "",
+            iw = inner_w - 1
+        );
 
-        // Show top 5 high-confidence learnings
-        let mut top: Vec<_> = learnings.iter().filter(|l| l.confidence >= 0.7).collect();
+        // Group by type: heuristics suggest soul text edits, anti-patterns suggest removals
+        let mut top: Vec<_> = high_conf.clone();
         top.sort_by(|a, b| {
             b.confidence
                 .partial_cmp(&a.confidence)
@@ -373,27 +379,106 @@ pub fn run_diff(store: &Store) -> anyhow::Result<()> {
         });
         top.truncate(5);
 
+        let _soul_lower = soul.raw.to_lowercase();
+
         for (i, l) in top.iter().enumerate() {
-            let line = format!(
-                "  {}. [{}] {} ({:.2})",
-                i + 1,
-                l.learning_type,
-                truncate_str(&l.content, 38),
-                l.confidence,
+            let num = format!("  {}. ", i + 1);
+            let content_w = inner_w - 5;
+
+            // Check if the learning contradicts or extends existing soul text
+            let is_anti = l.learning_type == "anti_pattern";
+            let content_lower = l.content.to_lowercase();
+
+            // Find a related soul line (simple keyword match)
+            let related_soul_line = soul.raw.lines().find(|line| {
+                let ll = line.to_lowercase();
+                // Match if they share 2+ significant words
+                content_lower.split_whitespace()
+                    .filter(|w| w.len() > 3)
+                    .any(|w| ll.contains(w))
+            });
+
+            if is_anti {
+                // Anti-pattern: suggest removal/change
+                if let Some(old_line) = related_soul_line {
+                    let old = format!("{}  - \"{}\"", num, truncate_str(old_line.trim(), content_w - 8));
+                    eprintln!(
+                        "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
+                        truncate_str(&old, inner_w - 3),
+                        iw = inner_w - 1
+                    );
+                    let new = format!("      + (remove \u{2014} contradicted by experience)");
+                    eprintln!(
+                        "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
+                        truncate_str(&new, inner_w - 3),
+                        iw = inner_w - 1
+                    );
+                } else {
+                    let line = format!("{}[anti-pattern] {}", num, truncate_str(&l.content, content_w - 16));
+                    eprintln!(
+                        "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
+                        truncate_str(&line, inner_w - 3),
+                        iw = inner_w - 1
+                    );
+                }
+            } else {
+                // Heuristic/insight: suggest addition or modification
+                if let Some(old_line) = related_soul_line {
+                    let old = format!("{}  - \"{}\"", num, truncate_str(old_line.trim(), content_w - 8));
+                    eprintln!(
+                        "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
+                        truncate_str(&old, inner_w - 3),
+                        iw = inner_w - 1
+                    );
+                    let new = format!("      + \"{}\"", truncate_str(&l.content, content_w - 10));
+                    eprintln!(
+                        "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
+                        truncate_str(&new, inner_w - 3),
+                        iw = inner_w - 1
+                    );
+                } else {
+                    let line = format!("{}+ NEW: \"{}\"", num, truncate_str(&l.content, content_w - 10));
+                    eprintln!(
+                        "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
+                        truncate_str(&line, inner_w - 3),
+                        iw = inner_w - 1
+                    );
+                }
+            }
+
+            // Evidence line
+            let evidence = format!(
+                "      Evidence: [{}] confidence {:.2}, reinforced {}x",
+                l.learning_type, l.confidence, l.reinforced,
             );
-            eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&line, w), w = w);
+            eprintln!(
+                "\u{2502} \u{2502} {:<iw$}\u{2502} \u{2502}",
+                truncate_str(&evidence, inner_w - 3),
+                iw = inner_w - 1
+            );
+
+            eprintln!(
+                "\u{2502} \u{2502}{:iw$}\u{2502} \u{2502}",
+                "",
+                iw = inner_w - 1
+            );
         }
+
+        let close_border = "\u{2500}".repeat(inner_w - 1);
+        eprintln!(
+            "\u{2502} \u{2514}{}\u{2518} \u{2502}",
+            close_border
+        );
 
         eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
         eprintln!(
             "\u{2502} {:<w$} \u{2502}",
-            "Run `openkoi soul evolve` to generate a full proposal.",
+            "Run `openkoi soul evolve` to generate and apply.",
             w = w
         );
     }
 
-    let _ = soul; // consumed for context
-
+    let _ = &soul; // suppress unused if needed
     eprintln!("\u{2570}\u{2500}{}\u{2500}\u{256f}", border);
 
     Ok(())
@@ -401,7 +486,6 @@ pub fn run_diff(store: &Store) -> anyhow::Result<()> {
 
 /// Run `openkoi soul history` — show evolution timeline.
 pub fn run_history(store: &Store) -> anyhow::Result<()> {
-    // For now, show learnings that impacted the soul over time
     let learnings = store.query_all_learnings()?;
 
     let w = 65;
@@ -413,7 +497,7 @@ pub fn run_history(store: &Store) -> anyhow::Result<()> {
         "\u{1f9ec} SOUL HISTORY \u{2014} Evolution timeline",
         w = w
     );
-    eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
+    eprintln!("\u{251c}\u{2500}{}\u{2500}\u{2524}", border);
 
     if learnings.is_empty() {
         eprintln!(
@@ -421,60 +505,125 @@ pub fn run_history(store: &Store) -> anyhow::Result<()> {
             "No evolution history yet. The soul is in its initial state.",
             w = w
         );
-    } else {
-        // Group learnings by type
-        let mut by_type: std::collections::HashMap<
-            String,
-            Vec<&crate::memory::store::LearningRow>,
-        > = std::collections::HashMap::new();
-        for l in &learnings {
-            by_type.entry(l.learning_type.clone()).or_default().push(l);
+        eprintln!("\u{2570}\u{2500}{}\u{2500}\u{256f}", border);
+        return Ok(());
+    }
+
+    // Group learnings by date (YYYY-MM-DD), preserving chronological order (newest first)
+    let mut by_date: Vec<(String, Vec<&crate::memory::store::LearningRow>)> = Vec::new();
+    for l in &learnings {
+        let date = if l.created_at.len() >= 10 {
+            l.created_at[..10].to_string()
+        } else if !l.created_at.is_empty() {
+            l.created_at.clone()
+        } else {
+            "Unknown".to_string()
+        };
+        if let Some(last) = by_date.last_mut() {
+            if last.0 == date {
+                last.1.push(l);
+                continue;
+            }
         }
+        by_date.push((date, vec![l]));
+    }
 
-        let total_line = format!("Total learnings accumulated: {}", learnings.len());
-        eprintln!(
-            "\u{2502} {:<w$} \u{2502}",
-            truncate_str(&total_line, w),
-            w = w
-        );
-        eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
+    // Summary line
+    let summary = format!(
+        "{} learnings across {} day{}",
+        learnings.len(),
+        by_date.len(),
+        if by_date.len() == 1 { "" } else { "s" },
+    );
+    eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&summary, w), w = w);
+    eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
 
-        for (ltype, items) in &by_type {
-            let avg_conf = items.iter().map(|l| l.confidence).sum::<f64>() / items.len() as f64;
-            let line = format!(
-                "  {:<20} {} items  avg confidence: {:.2}",
-                ltype,
-                items.len(),
-                avg_conf,
-            );
-            eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&line, w), w = w);
-        }
-
-        eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
-
-        // Show most recent high-impact learnings
-        let mut recent: Vec<_> = learnings.iter().collect();
-        recent.sort_by(|a, b| {
-            b.confidence
-                .partial_cmp(&a.confidence)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        recent.truncate(5);
-
-        eprintln!(
-            "\u{2502} {:<w$} \u{2502}",
-            "Most impactful learnings:",
-            w = w
-        );
-        for l in &recent {
-            let line = format!(
-                "  \u{2022} {} ({:.2})",
-                truncate_str(&l.content, 48),
-                l.confidence,
-            );
-            eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&line, w), w = w);
+    // Type emoji helper
+    fn type_icon(t: &str) -> &str {
+        match t {
+            "heuristic" => "\u{1f4a1}",
+            "anti_pattern" => "\u{26a0}\u{fe0f}",
+            "preference" => "\u{2764}\u{fe0f}",
+            "pattern" => "\u{1f50d}",
+            "correction" => "\u{270f}\u{fe0f}",
+            _ => "\u{1f4dd}",
         }
     }
+
+    // Render timeline
+    let num_dates = by_date.len();
+    for (date_idx, (date, items)) in by_date.iter().enumerate() {
+        let is_last_date = date_idx == num_dates - 1;
+
+        // Date header with timeline marker
+        let date_header = format!("  \u{2523}\u{2501}\u{2501} {} ({} event{})", date, items.len(), if items.len() == 1 { "" } else { "s" });
+        eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&date_header, w), w = w);
+
+        for (i, l) in items.iter().enumerate() {
+            let is_last_item = i == items.len() - 1;
+            let connector = if is_last_item && is_last_date {
+                "\u{2570}"
+            } else if is_last_item {
+                "\u{2514}"
+            } else {
+                "\u{251c}"
+            };
+            let icon = type_icon(&l.learning_type);
+            let conf_bar = if l.confidence >= 0.8 {
+                "\u{2588}\u{2588}\u{2588}"
+            } else if l.confidence >= 0.5 {
+                "\u{2588}\u{2588}\u{2591}"
+            } else {
+                "\u{2588}\u{2591}\u{2591}"
+            };
+
+            // Time portion (HH:MM if available)
+            let time_str = if l.created_at.len() >= 16 {
+                &l.created_at[11..16]
+            } else {
+                ""
+            };
+
+            let line = if time_str.is_empty() {
+                format!(
+                    "  \u{2503} {} {} {} ({})",
+                    connector, icon, truncate_str(&l.content, 40), l.learning_type,
+                )
+            } else {
+                format!(
+                    "  \u{2503} {} {} {} {} ({})",
+                    connector, time_str, icon, truncate_str(&l.content, 34), l.learning_type,
+                )
+            };
+            eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&line, w), w = w);
+
+            // Confidence + reinforcement on second line
+            let meta = format!(
+                "  \u{2503}   {} conf {:.0}%  reinforced {}x",
+                conf_bar,
+                l.confidence * 100.0,
+                l.reinforced,
+            );
+            eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&meta, w), w = w);
+        }
+
+        if !is_last_date {
+            eprintln!("\u{2502} {:<w$} \u{2502}", "  \u{2503}", w = w);
+        }
+    }
+
+    eprintln!("\u{2502}{:w$}\u{2502}", "", w = w + 2);
+
+    // Type breakdown summary at bottom
+    let mut type_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for l in &learnings {
+        *type_counts.entry(l.learning_type.clone()).or_default() += 1;
+    }
+    let mut types: Vec<_> = type_counts.into_iter().collect();
+    types.sort_by(|a, b| b.1.cmp(&a.1));
+    let breakdown: Vec<String> = types.iter().map(|(t, c)| format!("{} {}", c, t)).collect();
+    let breakdown_line = format!("  Breakdown: {}", breakdown.join(" \u{2502} "));
+    eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&breakdown_line, w), w = w);
 
     eprintln!("\u{2570}\u{2500}{}\u{2500}\u{256f}", border);
 
@@ -562,27 +711,129 @@ pub async fn run_evolve() -> anyhow::Result<()> {
 
             eprintln!("\u{2570}\u{2500}{}\u{2500}\u{256f}", border);
 
-            // Interactive approval
-            let apply = inquire::Confirm::new("Apply this soul evolution?")
-                .with_default(false)
-                .with_help_message(&format!("Writes to {}", paths::soul_path().display()))
-                .prompt()
-                .unwrap_or(false);
+            // Interactive approval: [y]es / [n]o / [r]eview each / [e]dit
+            let choice = inquire::Select::new(
+                "Apply this soul evolution?",
+                vec!["Yes — apply all changes", "No — discard", "Review each change", "Edit — open in $EDITOR"],
+            )
+            .with_help_message(&format!("Writes to {}", paths::soul_path().display()))
+            .prompt()
+            .unwrap_or("No — discard");
 
-            if apply {
-                let soul_path = paths::soul_path();
-                if let Some(parent) = soul_path.parent() {
-                    std::fs::create_dir_all(parent)?;
+            match choice {
+                "Yes — apply all changes" => {
+                    write_soul_update(&update.proposed)?;
                 }
-                if soul_path.exists() {
-                    let backup = soul_path.with_extension("md.bak");
-                    std::fs::copy(&soul_path, &backup)?;
-                    eprintln!("  Backed up existing soul to {}", backup.display());
+                "Review each change" => {
+                    // Split diff into individual hunks and let user approve/reject each
+                    let diff_lines: Vec<&str> = update.diff_summary.lines().collect();
+                    let mut hunks: Vec<(Option<String>, Option<String>)> = Vec::new();
+                    let mut i = 0;
+                    while i < diff_lines.len() {
+                        let line = diff_lines[i];
+                        if line.starts_with("- ") {
+                            let removed = Some(line[2..].to_string());
+                            let added = if i + 1 < diff_lines.len() && diff_lines[i + 1].starts_with("+ ") {
+                                i += 1;
+                                Some(diff_lines[i][2..].to_string())
+                            } else {
+                                None
+                            };
+                            hunks.push((removed, added));
+                        } else if line.starts_with("+ ") {
+                            hunks.push((None, Some(line[2..].to_string())));
+                        }
+                        i += 1;
+                    }
+
+                    if hunks.is_empty() {
+                        eprintln!("  No individual changes to review.");
+                        write_soul_update(&update.proposed)?;
+                    } else {
+                        let mut accepted = 0;
+                        let mut rejected = 0;
+                        for (idx, (removed, added)) in hunks.iter().enumerate() {
+                            eprintln!();
+                            eprintln!("  Change {}/{}:", idx + 1, hunks.len());
+                            if let Some(r) = removed {
+                                eprintln!("    \x1b[31m- {}\x1b[0m", r);
+                            }
+                            if let Some(a) = added {
+                                eprintln!("    \x1b[32m+ {}\x1b[0m", a);
+                            }
+
+                            let keep = inquire::Confirm::new("  Accept this change?")
+                                .with_default(true)
+                                .prompt()
+                                .unwrap_or(false);
+
+                            if keep {
+                                accepted += 1;
+                            } else {
+                                rejected += 1;
+                            }
+                        }
+
+                        eprintln!();
+                        if rejected == 0 {
+                            eprintln!("  All {} changes accepted.", accepted);
+                            write_soul_update(&update.proposed)?;
+                        } else if accepted == 0 {
+                            eprintln!("  All changes rejected. No changes made.");
+                        } else {
+                            // Partial acceptance — full merge would need a real merge engine.
+                            // For now, offer accept-all or reject-all.
+                            let apply = inquire::Confirm::new(&format!(
+                                "  {}/{} accepted. Apply full evolution anyway?",
+                                accepted,
+                                accepted + rejected,
+                            ))
+                            .with_default(true)
+                            .prompt()
+                            .unwrap_or(false);
+
+                            if apply {
+                                write_soul_update(&update.proposed)?;
+                            } else {
+                                eprintln!("  Discarded. No changes made.");
+                            }
+                        }
+                    }
                 }
-                std::fs::write(&soul_path, &update.proposed)?;
-                eprintln!("  Soul evolved and saved to {}", soul_path.display());
-            } else {
-                eprintln!("  Discarded. No changes made.");
+                "Edit — open in $EDITOR" => {
+                    // Write proposed to a temp file, open in editor, then save
+                    let tmp_dir = std::env::temp_dir();
+                    let tmp_path = tmp_dir.join("openkoi-soul-evolution.md");
+                    std::fs::write(&tmp_path, &update.proposed)?;
+
+                    let editor = std::env::var("EDITOR")
+                        .or_else(|_| std::env::var("VISUAL"))
+                        .unwrap_or_else(|_| "vi".to_string());
+
+                    eprintln!("  Opening proposed soul in {}...", editor);
+                    let status = std::process::Command::new(&editor)
+                        .arg(&tmp_path)
+                        .status();
+
+                    match status {
+                        Ok(s) if s.success() => {
+                            let edited = std::fs::read_to_string(&tmp_path)?;
+                            if edited.trim().is_empty() {
+                                eprintln!("  Edited file is empty. Discarding.");
+                            } else {
+                                write_soul_update(&edited)?;
+                            }
+                            let _ = std::fs::remove_file(&tmp_path);
+                        }
+                        _ => {
+                            eprintln!("  Editor failed or was cancelled. No changes made.");
+                            let _ = std::fs::remove_file(&tmp_path);
+                        }
+                    }
+                }
+                _ => {
+                    eprintln!("  Discarded. No changes made.");
+                }
             }
         }
         None => {
@@ -597,6 +848,24 @@ pub async fn run_evolve() -> anyhow::Result<()> {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+
+/// Write a soul update to disk, backing up the existing file first.
+fn write_soul_update(proposed: &str) -> anyhow::Result<()> {
+    use crate::infra::paths;
+
+    let soul_path = paths::soul_path();
+    if let Some(parent) = soul_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    if soul_path.exists() {
+        let backup = soul_path.with_extension("md.bak");
+        std::fs::copy(&soul_path, &backup)?;
+        eprintln!("  Backed up existing soul to {}", backup.display());
+    }
+    std::fs::write(&soul_path, proposed)?;
+    eprintln!("  Soul evolved and saved to {}", soul_path.display());
+    Ok(())
+}
 
 fn truncate_str(s: &str, max: usize) -> String {
     if s.len() <= max {

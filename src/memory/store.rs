@@ -416,7 +416,7 @@ impl Store {
         limit: u32,
     ) -> anyhow::Result<Vec<LearningRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, type, content, category, confidence, source_task, reinforced, last_used
+            "SELECT id, type, content, category, confidence, source_task, reinforced, last_used, created_at
              FROM learnings WHERE type = ?1
              ORDER BY confidence DESC LIMIT ?2",
         )?;
@@ -431,6 +431,7 @@ impl Store {
                 source_task: row.get(5)?,
                 reinforced: row.get(6)?,
                 last_used: row.get(7)?,
+                created_at: row.get::<_, String>(8).unwrap_or_default(),
             })
         })?;
 
@@ -443,8 +444,8 @@ impl Store {
 
     pub fn query_all_learnings(&self) -> anyhow::Result<Vec<LearningRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, type, content, category, confidence, source_task, reinforced, last_used
-             FROM learnings ORDER BY confidence DESC",
+            "SELECT id, type, content, category, confidence, source_task, reinforced, last_used, created_at
+             FROM learnings ORDER BY created_at DESC",
         )?;
 
         let rows = stmt.query_map([], |row| {
@@ -457,6 +458,7 @@ impl Store {
                 source_task: row.get(5)?,
                 reinforced: row.get(6)?,
                 last_used: row.get(7)?,
+                created_at: row.get::<_, String>(8).unwrap_or_default(),
             })
         })?;
 
@@ -473,7 +475,7 @@ impl Store {
         limit: u32,
     ) -> anyhow::Result<Vec<LearningRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, type, content, category, confidence, source_task, reinforced, last_used
+            "SELECT id, type, content, category, confidence, source_task, reinforced, last_used, created_at
              FROM learnings WHERE confidence >= ?1
              ORDER BY confidence DESC LIMIT ?2",
         )?;
@@ -488,6 +490,7 @@ impl Store {
                 source_task: row.get(5)?,
                 reinforced: row.get(6)?,
                 last_used: row.get(7)?,
+                created_at: row.get::<_, String>(8).unwrap_or_default(),
             })
         })?;
 
@@ -838,6 +841,7 @@ pub struct LearningRow {
     pub source_task: Option<String>,
     pub reinforced: i32,
     pub last_used: Option<String>,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone)]

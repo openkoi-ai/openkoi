@@ -344,6 +344,7 @@ mod tests {
                 source_task: None,
                 reinforced: 0,
                 last_used: None,
+                created_at: String::new(),
             }],
             ..Default::default()
         };
@@ -378,6 +379,7 @@ mod tests {
                     source_task: None,
                     reinforced: 0,
                     last_used: None,
+                    created_at: String::new(),
                 },
                 LearningRow {
                     id: "l2".into(),
@@ -388,6 +390,7 @@ mod tests {
                     source_task: None,
                     reinforced: 0,
                     last_used: None,
+                    created_at: String::new(),
                 },
             ],
             ..Default::default()

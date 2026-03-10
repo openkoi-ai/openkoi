@@ -151,6 +151,7 @@ mod tests {
             source_task: None,
             reinforced: 0,
             last_used: None,
+            created_at: String::new(),
         }
     }
 

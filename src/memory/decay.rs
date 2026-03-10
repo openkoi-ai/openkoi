@@ -87,6 +87,7 @@ mod tests {
             source_task: None,
             reinforced: 0,
             last_used,
+            created_at: String::new(),
         }
     }
 

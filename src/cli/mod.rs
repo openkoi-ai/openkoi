@@ -73,6 +73,12 @@ pub enum Commands {
         /// Show full parliamentary deliberation with reasoning
         #[arg(long)]
         verbose: bool,
+        /// Maximum cost budget in USD (e.g. 0.50)
+        #[arg(long)]
+        budget: Option<f64>,
+        /// Maximum time limit (e.g. "5m", "30s", "1h")
+        #[arg(long)]
+        time: Option<String>,
     },
     /// Interactive chat session
     Chat {
@@ -229,6 +235,15 @@ pub enum DaemonAction {
     Stop,
     /// Show daemon status
     Status,
+    /// Show daemon log output
+    Log {
+        /// Number of lines to show (default: 50)
+        #[arg(short = 'n', long, default_value = "50")]
+        lines: usize,
+        /// Follow log output in real-time
+        #[arg(short, long)]
+        follow: bool,
+    },
 }
 
 #[derive(Subcommand, Clone)]
