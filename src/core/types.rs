@@ -383,8 +383,10 @@ mod tests {
 
     #[test]
     fn test_iteration_config_timeout_conversion() {
-        let mut cfg = crate::infra::config::IterationConfig::default();
-        cfg.timeout_seconds = 600;
+        let cfg = crate::infra::config::IterationConfig {
+            timeout_seconds: 600,
+            ..Default::default()
+        };
         assert_eq!(cfg.timeout(), Duration::from_secs(600));
     }
 
