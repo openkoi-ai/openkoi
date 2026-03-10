@@ -8,6 +8,7 @@
 use crate::memory::store::Store;
 use crate::reflect;
 use crate::soul::loader;
+use crate::util::truncate_display as truncate_str;
 
 /// Run `openkoi soul show` — display the current soul.
 ///
@@ -556,7 +557,8 @@ pub fn run_history(store: &Store) -> anyhow::Result<()> {
         let is_last_date = date_idx == num_dates - 1;
 
         // Date header with timeline marker
-        let date_header = format!("  \u{2523}\u{2501}\u{2501} {} ({} event{})", date, items.len(), if items.len() == 1 { "" } else { "s" });
+        let date_relative = crate::util::format_relative_time(&format!("{}T00:00:00Z", date));
+        let date_header = format!("  \u{2523}\u{2501}\u{2501} {} ({}) \u{2014} {} event{}", date, date_relative, items.len(), if items.len() == 1 { "" } else { "s" });
         eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&date_header, w), w = w);
 
         for (i, l) in items.iter().enumerate() {
@@ -867,11 +869,4 @@ fn write_soul_update(proposed: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn truncate_str(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        let boundary = s.floor_char_boundary(max.saturating_sub(1));
-        format!("{}\u{2026}", &s[..boundary])
-    }
-}
+

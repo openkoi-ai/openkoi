@@ -7,6 +7,7 @@
 
 use crate::memory::store::Store;
 use crate::reflect::{self, StageStatus};
+use crate::util::{progress_bar, truncate_display as truncate_str};
 
 /// Run `openkoi reflect today`.
 pub fn run_today(store: &Store) -> anyhow::Result<()> {
@@ -455,19 +456,4 @@ fn reflective_quote(r: &reflect::DailyReflection) -> String {
     } else {
         "Steady progress. Each iteration sharpens the blade.".into()
     }
-}
-
-fn truncate_str(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        let boundary = s.floor_char_boundary(max.saturating_sub(1));
-        format!("{}\u{2026}", &s[..boundary])
-    }
-}
-
-fn progress_bar(ratio: f64, width: usize) -> String {
-    let filled = (ratio * width as f64).round() as usize;
-    let empty = width.saturating_sub(filled);
-    format!("{}{}", "\u{2588}".repeat(filled), "\u{2591}".repeat(empty))
 }

@@ -344,6 +344,7 @@ async fn run() -> anyhow::Result<()> {
             verbose,
             budget,
             ref time,
+            override_guardian,
         }) => {
             let task_desc = if task.is_empty() {
                 // Interactive prompt
@@ -375,6 +376,7 @@ async fn run() -> anyhow::Result<()> {
                 verbose,
                 budget,
                 time.clone(),
+                override_guardian,
             )
             .await;
             mcp_manager.shutdown_all().await;

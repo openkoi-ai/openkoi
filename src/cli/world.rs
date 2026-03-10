@@ -3,6 +3,7 @@
 // Displays the Tool Atlas, Domain Atlas, Human Atlas, and World Map overview.
 
 use crate::memory::store::Store;
+use crate::util::{progress_bar, truncate_display as truncate_str};
 
 /// Run `openkoi world tools [name]` — Tool Atlas overview or drill-down.
 pub fn run_tools(store: &Store, tool_name: Option<&str>) -> anyhow::Result<()> {
@@ -300,18 +301,3 @@ pub fn run_map(store: &Store) -> anyhow::Result<()> {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
-
-fn truncate_str(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        let boundary = s.floor_char_boundary(max.saturating_sub(1));
-        format!("{}\u{2026}", &s[..boundary])
-    }
-}
-
-fn progress_bar(ratio: f64, width: usize) -> String {
-    let filled = (ratio * width as f64).round() as usize;
-    let empty = width.saturating_sub(filled);
-    format!("{}{}", "\u{2588}".repeat(filled), "\u{2591}".repeat(empty))
-}

@@ -7,6 +7,7 @@
 
 use crate::memory::store::Store;
 use crate::trust::TrustLevel;
+use crate::util::{format_relative_time, truncate_display as truncate_str};
 
 /// Run `openkoi trust show` — current trust levels.
 pub fn run_show(store: &Store) -> anyhow::Result<()> {
@@ -32,8 +33,8 @@ pub fn run_show(store: &Store) -> anyhow::Result<()> {
         let since = entry
             .granted_at
             .as_ref()
-            .map(|s| &s[..10.min(s.len())])
-            .unwrap_or("\u{2014}");
+            .map(|s| format_relative_time(s))
+            .unwrap_or_else(|| "\u{2014}".to_string());
         let line = format!(
             "  {:<20} {:>7} {:<16} {:>10}",
             truncate_str(&entry.domain, 20),
@@ -142,7 +143,7 @@ pub fn run_audit(store: &Store, domain: Option<&str>) -> anyhow::Result<()> {
                     );
                 } else {
                     for action in &audit.actions {
-                        let date = &action.created_at[..10.min(action.created_at.len())];
+                        let date = format_relative_time(&action.created_at);
                         let override_str = if action.human_override {
                             " [OVERRIDDEN]"
                         } else {
@@ -209,7 +210,7 @@ pub fn run_audit(store: &Store, domain: Option<&str>) -> anyhow::Result<()> {
             );
         } else {
             for action in &actions {
-                let date = &action.created_at[..10.min(action.created_at.len())];
+                let date = format_relative_time(&action.created_at);
                 let override_str = if action.human_override {
                     " [OVERRIDDEN]"
                 } else {
@@ -255,15 +256,6 @@ pub fn run_audit(store: &Store, domain: Option<&str>) -> anyhow::Result<()> {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
-
-fn truncate_str(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        let boundary = s.floor_char_boundary(max.saturating_sub(1));
-        format!("{}\u{2026}", &s[..boundary])
-    }
-}
 
 fn trust_level_mode_label(level: &TrustLevel) -> &str {
     match level {

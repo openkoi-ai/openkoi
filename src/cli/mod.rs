@@ -79,6 +79,9 @@ pub enum Commands {
         /// Maximum time limit (e.g. "5m", "30s", "1h")
         #[arg(long)]
         time: Option<String>,
+        /// Override a Guardian block and proceed anyway
+        #[arg(long)]
+        override_guardian: bool,
     },
     /// Interactive chat session
     Chat {

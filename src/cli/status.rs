@@ -3,6 +3,7 @@
 use crate::infra::paths;
 use crate::memory::schema;
 use crate::memory::store::Store;
+use crate::util::{format_relative_time, truncate_display as truncate_str};
 use rusqlite::Connection;
 
 /// Display system status using box-drawing (consistent with all other CLI output).
@@ -173,7 +174,7 @@ pub async fn show_status(verbose: bool, _costs: bool) -> anyhow::Result<()> {
                 if last.total_tokens > 0 {
                     let usage_line = format!(
                         "  {} tokens, ${:.4}  ({})",
-                        last.total_tokens, last.total_cost_usd, last.created_at,
+                        last.total_tokens, last.total_cost_usd, format_relative_time(&last.created_at),
                     );
                     eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&usage_line, w), w = w);
                 }
@@ -326,14 +327,7 @@ fn query_growth_stage(db_path: &std::path::Path) -> Option<(u8, String)> {
     Some((growth.current_stage, growth.stage_name))
 }
 
-fn truncate_str(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        let boundary = s.floor_char_boundary(max.saturating_sub(1));
-        format!("{}\u{2026}", &s[..boundary])
-    }
-}
+
 
 fn format_bytes(bytes: u64) -> String {
     if bytes >= 1_048_576 {

@@ -1,6 +1,7 @@
 // src/cli/task.rs — Task inspection CLI commands
 
 use crate::memory::store_server::StoreHandle;
+use crate::util::format_relative_time;
 
 /// List recent tasks.
 pub async fn run_list(
@@ -92,9 +93,9 @@ pub async fn run_show(store: &StoreHandle, id_prefix: &str) -> anyhow::Result<()
     if let Some(cost) = task.total_cost_usd {
         println!("  Cost:        ${:.4}", cost);
     }
-    println!("  Created:     {}", task.created_at);
+    println!("  Created:     {}", format_relative_time(&task.created_at));
     if let Some(ref completed) = task.completed_at {
-        println!("  Completed:   {}", completed);
+        println!("  Completed:   {}", format_relative_time(completed));
     }
 
     // Show output path / preview

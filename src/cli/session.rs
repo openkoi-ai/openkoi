@@ -2,6 +2,7 @@
 
 use crate::infra::session::Session;
 use crate::memory::store_server::StoreHandle;
+use crate::util::format_relative_time;
 
 /// List recent sessions.
 pub async fn run_list(store: &StoreHandle, limit: u32) -> anyhow::Result<()> {
@@ -23,7 +24,7 @@ pub async fn run_list(store: &StoreHandle, limit: u32) -> anyhow::Result<()> {
             .count_tasks_by_session(s.id.clone())
             .await
             .unwrap_or(0);
-        let created = format_timestamp(&s.created_at);
+        let created = format_relative_time(&s.created_at);
         println!(
             "{:<10} {:<8} {:<10} {:<22} {:<8} {:<10} ${:.2}",
             &s.id[..s.id.len().min(8)],
@@ -51,9 +52,9 @@ pub async fn run_show(store: &StoreHandle, id_prefix: &str) -> anyhow::Result<()
         session.model_provider, session.model_id
     );
     println!("  Status:   {}", session.status);
-    println!("  Created:  {}", session.created_at);
+    println!("  Created:  {}", format_relative_time(&session.created_at));
     if let Some(ref ended) = session.ended_at {
-        println!("  Ended:    {}", ended);
+        println!("  Ended:    {}", format_relative_time(ended));
     }
     println!("  Tokens:   {}", session.total_tokens);
     println!("  Cost:     ${:.4}", session.total_cost_usd);
@@ -176,9 +177,3 @@ async fn resolve_session(
     }
 }
 
-fn format_timestamp(ts: &str) -> String {
-    // Parse ISO 8601 and format as compact local-ish display
-    chrono::DateTime::parse_from_rfc3339(ts)
-        .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
-        .unwrap_or_else(|_| ts[..ts.len().min(19)].to_string())
-}

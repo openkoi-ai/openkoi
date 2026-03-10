@@ -4,6 +4,7 @@
 // dissent records, and calibration data.
 
 use crate::memory::store::Store;
+use crate::util::{format_relative_time, progress_bar, truncate_display as truncate_str};
 
 /// Run `openkoi mind parliament` — show the last deliberation record.
 pub fn run_parliament(store: &Store) -> anyhow::Result<()> {
@@ -32,7 +33,7 @@ pub fn run_parliament(store: &Store) -> anyhow::Result<()> {
             };
             eprintln!("\u{2502} {:<w$} \u{2502}", status_line, w = w);
 
-            let time_line = format!("Time: {}", d.created_at);
+            let time_line = format!("Time: {}", format_relative_time(&d.created_at));
             eprintln!(
                 "\u{2502} {:<w$} \u{2502}",
                 truncate_str(&time_line, w),
@@ -170,7 +171,7 @@ pub fn run_dissent(store: &Store) -> anyhow::Result<()> {
             );
             eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&line2, w), w = w);
 
-            let line3 = format!("   Date: {}", &d.created_at[..10.min(d.created_at.len())]);
+            let line3 = format!("   Date: {}", format_relative_time(&d.created_at));
             eprintln!("\u{2502} {:<w$} \u{2502}", truncate_str(&line3, w), w = w);
 
             if i < dissents.len() - 1 {
@@ -243,15 +244,6 @@ pub fn run_calibrate(store: &Store) -> anyhow::Result<()> {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-fn truncate_str(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        let boundary = s.floor_char_boundary(max.saturating_sub(1));
-        format!("{}\u{2026}", &s[..boundary])
-    }
-}
-
 fn agency_symbol(agency: &str) -> &str {
     match agency.to_lowercase().as_str() {
         "guardian" => "\u{1f6e1}\u{fe0f} ",
@@ -270,10 +262,4 @@ fn verdict_symbol(verdict: &str) -> &str {
         "BLOCK" => "\u{26d4}",
         _ => "\u{2022} ",
     }
-}
-
-fn progress_bar(ratio: f64, width: usize) -> String {
-    let filled = (ratio * width as f64).round() as usize;
-    let empty = width.saturating_sub(filled);
-    format!("{}{}", "\u{2588}".repeat(filled), "\u{2591}".repeat(empty))
 }

@@ -41,6 +41,7 @@ pub async fn run_think(
     verbose: bool,
     budget: Option<f64>,
     time: Option<String>,
+    override_guardian: bool,
 ) -> anyhow::Result<()> {
     let task = TaskInput::new(task_description);
 
@@ -108,8 +109,15 @@ pub async fn run_think(
 
     // ─── Check for blocks ───────────────────────────────────────────────────
     if !deliberation.approved {
-        render_escalation(&deliberation);
-        return Ok(());
+        if override_guardian {
+            eprintln!();
+            eprintln!("  \u{26a0}\u{fe0f}  Guardian block overridden by --override-guardian flag.");
+            eprintln!("     Proceeding despite parliamentary objection.");
+            eprintln!();
+        } else {
+            render_escalation(&deliberation);
+            return Ok(());
+        }
     }
 
     // ─── Simulation mode: Chess Mode — multi-strategy evaluation ───────────
