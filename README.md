@@ -19,6 +19,9 @@ Ships as a single static binary. Zero runtime dependencies. Works with any model
 
 ```bash
 # 1. Install
+brew tap openkoi-ai/openkoi
+brew install openkoi
+# or
 cargo install openkoi
 # or
 curl -fsSL https://openkoi.ai/install.sh | sh
@@ -436,7 +439,11 @@ openkoi status   # config at /tmp/openkoi-test/, data at /tmp/openkoi-test/data/
 ## Install
 
 ```bash
-# Via Cargo
+# Via Homebrew (macOS / Linux)
+brew tap openkoi-ai/openkoi
+brew install openkoi
+
+# Via Cargo (source build)
 cargo install openkoi
 
 # Via shell installer
