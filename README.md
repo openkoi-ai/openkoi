@@ -60,7 +60,7 @@ No config file needed. No setup wizard. OpenKoi detects your API keys from envir
 ## Features
 
 - **Self-iteration** — Plan, execute, evaluate, refine. The agent is its own reviewer.
-- **8+ providers** — Anthropic, OpenAI, Google, Ollama, AWS Bedrock, Groq, DeepSeek, Moonshot/Kimi, and any OpenAI-compatible endpoint.
+- **8+ providers** — Anthropic, OpenAI, Google, Ollama, AWS Bedrock, Groq, DeepSeek, Moonshot/Kimi, MiniMax, and any OpenAI-compatible endpoint.
 - **Dynamic model discovery** — Probes provider APIs for available models, caches results locally. Fuzzy validation with "did you mean?" suggestions for typos.
 - **Role-based models** — Assign different models to executor, evaluator, planner, and embedder roles. Auto-resolves a small/fast model for cost-sensitive internal tasks.
 - **Automatic retry** — Rate limits, server errors, and timeouts are retried with exponential backoff and jitter. Context overflow is detected and handled separately.
@@ -195,6 +195,7 @@ Set an environment variable or paste a key when prompted during `openkoi init`.
 | OpenRouter | `OPENROUTER_API_KEY` |
 | Together | `TOGETHER_API_KEY` |
 | DeepSeek | `DEEPSEEK_API_KEY` |
+| MiniMax | `MINIMAX_API_KEY` |
 | Moonshot/Kimi | `MOONSHOT_API_KEY` |
 | xAI | `XAI_API_KEY` |
 | Qwen | `QWEN_API_KEY` |

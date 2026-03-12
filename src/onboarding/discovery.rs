@@ -55,6 +55,7 @@ pub async fn discover_providers() -> Vec<DiscoveredProvider> {
             "meta-llama/Llama-3.3-70B-Instruct-Turbo",
         ),
         ("DEEPSEEK_API_KEY", "deepseek", "deepseek-chat"),
+        ("MINIMAX_API_KEY", "minimax", "MiniMax-M2.5"),
         ("XAI_API_KEY", "xai", "grok-3"),
     ];
     for (env_var, provider, model) in &env_checks {

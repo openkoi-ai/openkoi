@@ -220,6 +220,19 @@ pub async fn discover_providers_with_config(config: &Config) -> Vec<Arc<dyn Mode
         seen_providers.push("moonshot".into());
     }
 
+    if let Some(key) = resolve_key("MINIMAX_API_KEY", "minimax").await {
+        let mut p = OpenAICompatProvider::new(
+            "minimax",
+            "MiniMax",
+            key,
+            "https://api.minimax.io/v1".into(),
+            "MiniMax-M2.5".into(),
+        );
+        p.probe_models().await;
+        providers.push(Arc::new(p));
+        seen_providers.push("minimax".into());
+    }
+
     // --- Qwen: env var > saved file > Qwen CLI ---
     if !seen_providers.contains(&"qwen".to_string()) {
         let qwen_key = resolve_key("QWEN_API_KEY", "qwen").await;
@@ -336,6 +349,7 @@ pub fn pick_default_model(providers: &[Arc<dyn ModelProvider>]) -> Option<ModelR
         ("deepseek", "deepseek-chat"),
         ("xai", "grok-3"),
         ("qwen", "qwen2.5-coder-32b"),
+        ("minimax", "MiniMax-M2.5"),
         ("together", "meta-llama/Llama-3.3-70B-Instruct-Turbo"),
         ("custom", "auto"),
         ("ollama", ""),
@@ -410,6 +424,7 @@ pub fn resolve_small_model(
         ("deepseek", "deepseek-chat"),
         ("xai", "grok-2"),
         ("moonshot", "moonshot-v1-8k"),
+        ("minimax", "MiniMax-M2.5-highspeed"),
         ("together", "meta-llama/Llama-3.3-70B-Instruct-Turbo"),
         ("ollama", ""), // Will pick best available
     ];

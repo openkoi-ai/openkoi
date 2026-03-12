@@ -1,7 +1,7 @@
 // src/provider/openai_compat.rs — Generic OpenAI-compatible provider
 //
 // Supports dynamic model discovery via `/v1/models` probing.
-// Used by: Groq, DeepSeek, xAI, Together, OpenRouter, Qwen, and custom providers.
+// Used by: Groq, DeepSeek, xAI, Together, OpenRouter, Qwen, MiniMax, and custom providers.
 
 use async_trait::async_trait;
 use futures::Stream;
@@ -12,6 +12,7 @@ use std::pin::Pin;
 use super::model_cache;
 use super::{
     ChatChunk, ChatRequest, ChatResponse, ModelInfo, ModelProvider, Role, StopReason, TokenUsage,
+    ToolCallDelta,
 };
 use crate::infra::errors::OpenKoiError;
 
@@ -286,6 +287,25 @@ impl ModelProvider for OpenAICompatProvider {
             body["temperature"] = serde_json::json!(temp);
         }
 
+        // Include tool definitions so the model can generate tool calls.
+        if !request.tools.is_empty() {
+            let tools: Vec<serde_json::Value> = request
+                .tools
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "type": "function",
+                        "function": {
+                            "name": t.name,
+                            "description": t.description,
+                            "parameters": t.parameters,
+                        }
+                    })
+                })
+                .collect();
+            body["tools"] = serde_json::json!(tools);
+        }
+
         let response = self
             .client
             .post(format!("{}/chat/completions", self.base_url))
@@ -335,6 +355,27 @@ impl ModelProvider for OpenAICompatProvider {
             content
         };
 
+        // Parse tool calls from the response
+        let tool_calls = resp["choices"][0]["message"]["tool_calls"]
+            .as_array()
+            .map(|tcs| {
+                tcs.iter()
+                    .filter_map(|tc| {
+                        let id = tc["id"].as_str()?.to_string();
+                        let name = tc["function"]["name"].as_str()?.to_string();
+                        let arguments_str = tc["function"]["arguments"].as_str().unwrap_or("{}");
+                        let arguments: serde_json::Value =
+                            serde_json::from_str(arguments_str).unwrap_or_default();
+                        Some(super::ToolCall {
+                            id,
+                            name,
+                            arguments,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
         let usage = TokenUsage {
             input_tokens: resp["usage"]["prompt_tokens"].as_u64().unwrap_or(0) as u32,
             output_tokens: resp["usage"]["completion_tokens"].as_u64().unwrap_or(0) as u32,
@@ -345,11 +386,18 @@ impl ModelProvider for OpenAICompatProvider {
             cache_write_tokens: 0,
         };
 
+        let stop_reason = match resp["choices"][0]["finish_reason"].as_str() {
+            Some("tool_calls") => StopReason::ToolUse,
+            Some("length") => StopReason::MaxTokens,
+            Some("stop") => StopReason::EndTurn,
+            _ => StopReason::EndTurn,
+        };
+
         Ok(ChatResponse {
             content,
-            tool_calls: Vec::new(),
+            tool_calls,
             usage,
-            stop_reason: StopReason::EndTurn,
+            stop_reason,
         })
     }
 
@@ -406,6 +454,25 @@ impl ModelProvider for OpenAICompatProvider {
         }
         if let Some(temp) = request.temperature {
             body["temperature"] = serde_json::json!(temp);
+        }
+
+        // Include tool definitions so the model can generate tool calls.
+        if !request.tools.is_empty() {
+            let tools: Vec<serde_json::Value> = request
+                .tools
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "type": "function",
+                        "function": {
+                            "name": t.name,
+                            "description": t.description,
+                            "parameters": t.parameters,
+                        }
+                    })
+                })
+                .collect();
+            body["tools"] = serde_json::json!(tools);
         }
 
         let provider_id = self.id_str.clone();
@@ -480,6 +547,28 @@ impl ModelProvider for OpenAICompatProvider {
                             emit_delta.push_str(&delta_content);
                         }
 
+                        // Handle streaming tool call deltas (OpenAI format)
+                        let tool_call_delta = parsed["choices"][0]["delta"]["tool_calls"]
+                            .as_array()
+                            .and_then(|tcs| tcs.first())
+                            .and_then(|tc| {
+                                let id = tc["id"].as_str().map(|s| s.to_string());
+                                let name = tc["function"]["name"].as_str().map(|s| s.to_string());
+                                let args_delta = tc["function"]["arguments"]
+                                    .as_str()
+                                    .unwrap_or("")
+                                    .to_string();
+                                if id.is_some() || name.is_some() || !args_delta.is_empty() {
+                                    Some(ToolCallDelta {
+                                        id,
+                                        name,
+                                        arguments_delta: args_delta,
+                                    })
+                                } else {
+                                    None
+                                }
+                            });
+
                         // Extract usage if present (some compat providers include it)
                         let usage = if parsed["usage"].is_object() && !parsed["usage"].is_null() {
                             Some(TokenUsage {
@@ -499,10 +588,10 @@ impl ModelProvider for OpenAICompatProvider {
                             None
                         };
 
-                        if !emit_delta.is_empty() || usage.is_some() {
+                        if !emit_delta.is_empty() || usage.is_some() || tool_call_delta.is_some() {
                             yield Ok(ChatChunk {
                                 delta: emit_delta,
-                                tool_call_delta: None,
+                                tool_call_delta,
                                 usage,
                             });
                         }
