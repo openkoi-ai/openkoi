@@ -2503,6 +2503,7 @@ dependencies = [
  "tokio",
  "tokio-test",
  "toml",
+ "toml_edit",
  "tower",
  "tower-http",
  "tracing",
