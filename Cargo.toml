@@ -1,6 +1,6 @@
 [package]
 name = "openkoi"
-version = "2026.3.11"
+version = "2026.3.12"
 edition = "2021"
 description = "Executive Function as a Service. AI agent that thinks before it acts. Single binary, any model."
 license = "MIT"
