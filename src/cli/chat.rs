@@ -52,6 +52,7 @@ pub async fn run_chat(
     mcp_manager: Option<&mut McpManager>,
     integrations: Option<&IntegrationRegistry>,
     quiet: bool,
+    redact: bool,
     resume_session_id: Option<String>,
 ) -> anyhow::Result<()> {
     let memory_count = if let Some(ref s) = store {
@@ -249,6 +250,22 @@ pub async fn run_chat(
                 inner,
             );
             orchestrator = orchestrator.with_progress(progress);
+        }
+
+        // Configure redaction if enabled
+        let redact_enabled = redact || config.redaction.enabled;
+        if redact_enabled {
+            let redaction_config = if redact {
+                let mut rc = config.redaction.clone();
+                rc.enabled = true;
+                rc
+            } else {
+                config.redaction.clone()
+            };
+            let redactor = std::sync::Arc::new(
+                crate::security::redaction::Redactor::from_config(&redaction_config),
+            );
+            orchestrator = orchestrator.with_redactor(redactor);
         }
 
         let mcp_ref = mcp.as_deref_mut();

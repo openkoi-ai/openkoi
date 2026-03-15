@@ -397,6 +397,7 @@ async fn run() -> anyhow::Result<()> {
                 mcp,
                 integrations.as_ref(),
                 cli.quiet,
+                cli.redact,
                 resume.clone(),
             )
             .await;
@@ -420,6 +421,7 @@ async fn run() -> anyhow::Result<()> {
                 mcp,
                 integrations.as_ref(),
                 cli.quiet,
+                cli.redact,
                 Some(id.clone()),
             )
             .await;
@@ -447,6 +449,7 @@ async fn run() -> anyhow::Result<()> {
                 mcp,
                 integrations.as_ref(),
                 cli.quiet,
+                cli.redact,
             )
             .await;
             mcp_manager.shutdown_all().await;

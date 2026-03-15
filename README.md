@@ -86,6 +86,7 @@ No config file needed. No setup wizard. OpenKoi detects your API keys from envir
 - **World model** — Tool Atlas tracks reliability and failure modes. Domain Atlas captures learned expertise. Human Atlas models your preferences.
 - **Trust & delegation** — Grant autonomous action per domain, revoke anytime, audit every decision the agent made on its own.
 - **Reflection loops** — Daily, weekly, and deep self-assessment. Epistemic honesty audit shows where the agent was wrong and what it learned.
+- **Sensitive information redaction** — Enterprise-ready preprocessor that scans and redacts secrets (API keys, passwords, PII, private keys, connection strings) before content reaches AI providers, then restores them in responses. Opt-in via `--redact` flag or config.
 
 ## CLI
 
@@ -163,6 +164,7 @@ openkoi trust audit [domain]          # Audit autonomous actions taken
 openkoi "task" -i 5               # Set max iterations (default 3)
 openkoi "task" --quality 0.9      # Set quality threshold (default 0.8)
 openkoi "task" --quiet            # Suppress progress output; only emit final result
+openkoi "task" --redact           # Redact secrets before sending to AI providers
 openkoi "task" -m claude-sonnet-4 # Use a specific model
 ```
 
@@ -436,6 +438,40 @@ openkoi status   # config at /tmp/openkoi-test/, data at /tmp/openkoi-test/data/
 | `OPENKOI_DATA` | Override the data directory only. Default: `~/.local/share/openkoi`. |
 | `OPENKOI_MODEL` | Default model in `provider/model` format. |
 | `OPENKOI_LOG_LEVEL` | Log verbosity: `error`, `warn`, `info`, `debug`, `trace`. |
+
+## Sensitive Information Redaction
+
+For enterprise environments where source code, config files, or tool outputs may contain secrets, OpenKoi can redact sensitive information before it reaches AI providers and restore it in responses.
+
+```bash
+# Enable for a single run
+openkoi --redact "fix the database connection in config.yaml"
+```
+
+Or enable persistently in `~/.openkoi/config.toml`:
+
+```toml
+[redaction]
+enabled = true
+
+[redaction.categories]
+api_keys = true         # AWS, GitHub, OpenAI, Anthropic, Slack, Stripe tokens
+passwords = true        # password=, secret=, client_secret= assignments
+private_keys = true     # PEM blocks (RSA, EC, DSA, OPENSSH)
+connection_strings = true  # postgres://, mysql://, mongodb:// with credentials
+jwt_tokens = true       # JWT token strings
+high_entropy = false    # High-entropy hex strings (opt-in, may have false positives)
+
+# Custom patterns (regex)
+[[redaction.custom_patterns]]
+name = "CORP_ID"
+pattern = "CORP-[A-Z0-9]{8}"
+
+# Known secrets to always redact (literal match)
+literal_secrets = ["my-known-secret-value"]
+```
+
+Secrets are replaced with deterministic placeholders (`<<REDACTED_AWS_KEY_1>>`, `<<REDACTED_PASSWORD_2>>`, etc.) so the AI can still reason about the structure of your code. The same secret always maps to the same placeholder within a session, and all placeholders are restored in the final output.
 
 ## Install
 

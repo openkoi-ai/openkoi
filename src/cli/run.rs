@@ -32,6 +32,7 @@ pub async fn run_task(
     mcp_manager: Option<&mut McpManager>,
     integrations: Option<&IntegrationRegistry>,
     quiet: bool,
+    redact: bool,
 ) -> anyhow::Result<()> {
     // Create a session for this CLI task
     let session = Session::new("cli").with_model(&model_ref.provider, &model_ref.model);
@@ -111,6 +112,26 @@ pub async fn run_task(
         ctx.skill_registry.clone(),
         store.clone(),
     );
+
+    // Configure sensitive information redaction if enabled
+    let redact_enabled = redact || config.redaction.enabled;
+    if redact_enabled {
+        let redaction_config = if redact {
+            // CLI flag forces redaction on with default categories
+            let mut rc = config.redaction.clone();
+            rc.enabled = true;
+            rc
+        } else {
+            config.redaction.clone()
+        };
+        let redactor = std::sync::Arc::new(
+            crate::security::redaction::Redactor::from_config(&redaction_config),
+        );
+        orchestrator = orchestrator.with_redactor(redactor);
+        if !quiet {
+            eprintln!("[security] sensitive information redaction enabled");
+        }
+    }
 
     {
         let inner: Option<Box<dyn Fn(crate::core::types::ProgressEvent) + Send>> = if !quiet {

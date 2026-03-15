@@ -48,6 +48,10 @@ pub struct Cli {
     #[arg(long)]
     pub quiet: bool,
 
+    /// Enable sensitive information redaction (redacts secrets before sending to AI)
+    #[arg(long)]
+    pub redact: bool,
+
     /// Read task from stdin
     #[arg(long)]
     pub stdin: bool,

@@ -5,6 +5,7 @@ use std::path::Path;
 
 use crate::infra::paths;
 use crate::security::permission_rules::PermissionRule;
+use crate::security::redaction::RedactionConfig;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Config {
@@ -60,6 +61,16 @@ pub struct Config {
     /// ```
     #[serde(default)]
     pub permissions: PermissionsConfig,
+
+    /// Sensitive information redaction preprocessor.
+    /// Scans and redacts secrets (API keys, passwords, PII) before sending to AI providers.
+    /// Example:
+    /// ```toml
+    /// [redaction]
+    /// enabled = true
+    /// ```
+    #[serde(default)]
+    pub redaction: RedactionConfig,
 }
 
 /// Configuration for a custom OpenAI-compatible provider.

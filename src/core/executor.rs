@@ -11,6 +11,7 @@ use crate::integrations::registry::IntegrationRegistry;
 use crate::plugins::mcp::McpManager;
 use crate::provider::{ChatRequest, Message, ModelProvider, StopReason, ToolDef};
 use crate::security::permission_rules::{self, Action, PermissionRule};
+use crate::security::redaction::Redactor;
 
 /// Maximum number of tool-call round-trips per execution to prevent infinite loops.
 const MAX_TOOL_ROUNDS: usize = 20;
@@ -38,6 +39,8 @@ pub struct Executor {
     tool_loop_circuit_breaker: u32,
     /// Permission rules evaluated before tool dispatch.
     permission_rules: Vec<PermissionRule>,
+    /// Optional redactor for sensitive information preprocessing.
+    redactor: Option<Arc<Redactor>>,
 }
 
 impl Executor {
@@ -50,6 +53,7 @@ impl Executor {
             tool_loop_critical: 80,
             tool_loop_circuit_breaker: 100,
             permission_rules: permission_rules::default_rules(),
+            redactor: None,
         }
     }
 
@@ -69,6 +73,12 @@ impl Executor {
     /// Configure permission rules (merges user rules with defaults).
     pub fn with_permission_rules(mut self, user_rules: Vec<PermissionRule>) -> Self {
         self.permission_rules = permission_rules::merge_rules(&user_rules);
+        self
+    }
+
+    /// Configure the sensitive information redactor.
+    pub fn with_redactor(mut self, redactor: Arc<Redactor>) -> Self {
+        self.redactor = Some(redactor);
         self
     }
 
@@ -160,7 +170,7 @@ impl Executor {
         let mut mcp = mcp;
 
         for _round in 0..max_rounds {
-            let request = ChatRequest {
+            let mut request = ChatRequest {
                 model: self.model_id.clone(),
                 messages: messages.clone(),
                 tools: tools.to_vec(),
@@ -169,11 +179,28 @@ impl Executor {
                 system: Some(context.system.clone()),
             };
 
-            let response = self
+            // ── Point A: REDACT before sending to provider ──────────
+            if let Some(ref redactor) = self.redactor {
+                redactor.redact_request(&mut request);
+            }
+
+            let mut response = self
                 .provider
                 .chat(request)
                 .await
                 .map_err(|e| overflow::classify_error_with_model(e, &self.model_id))?;
+
+            // ── Point B: RESTORE placeholders in provider response ──
+            if let Some(ref redactor) = self.redactor {
+                redactor.restore_response(&mut response);
+                if redactor.secrets_tracked() > 0 {
+                    tracing::debug!(
+                        secrets = redactor.secrets_tracked(),
+                        "Redaction active: {} secrets tracked",
+                        redactor.secrets_tracked(),
+                    );
+                }
+            }
 
             // Accumulate usage
             total_usage.input_tokens += response.usage.input_tokens;
@@ -240,7 +267,13 @@ impl Executor {
                         "Truncated tool output",
                     );
                 }
-                messages.push(Message::tool_result(&tc.id, &truncated.content));
+
+                // ── Point C: REDACT tool results before next round ──
+                let mut tool_msg = Message::tool_result(&tc.id, &truncated.content);
+                if let Some(ref redactor) = self.redactor {
+                    redactor.redact_message(&mut tool_msg);
+                }
+                messages.push(tool_msg);
 
                 // Track file modifications from tool calls
                 if let Some(path) = extract_file_path_from_tool_call(tc) {

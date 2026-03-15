@@ -116,6 +116,13 @@ impl Orchestrator {
         self
     }
 
+    /// Configure the sensitive information redactor on the executor.
+    /// When set, secrets in requests/responses are automatically redacted/restored.
+    pub fn with_redactor(mut self, redactor: std::sync::Arc<crate::security::redaction::Redactor>) -> Self {
+        self.executor = self.executor.with_redactor(redactor);
+        self
+    }
+
     /// Set a callback for real-time progress events.
     /// The callback receives `ProgressEvent` values at key lifecycle transitions.
     pub fn with_progress(mut self, cb: impl Fn(ProgressEvent) + Send + 'static) -> Self {
