@@ -8,6 +8,15 @@ use crate::core::types::ProgressEvent;
 /// Returns a closure suitable for `Orchestrator::with_progress()`.
 pub fn terminal_progress() -> impl Fn(ProgressEvent) + Send + 'static {
     move |event| match event {
+        ProgressEvent::ScoutComplete {
+            tools_used,
+            tokens_used,
+        } => {
+            eprintln!(
+                "[scout] complete — {} tool(s), {} tokens",
+                tools_used, tokens_used,
+            );
+        }
         ProgressEvent::PlanReady {
             steps,
             estimated_iterations,
@@ -69,6 +78,13 @@ mod tests {
         let log_clone = log.clone();
         let cb = move |event: ProgressEvent| {
             let msg = match event {
+                ProgressEvent::ScoutComplete {
+                    tools_used,
+                    tokens_used,
+                } => format!(
+                    "[scout] complete — {} tool(s), {} tokens",
+                    tools_used, tokens_used
+                ),
                 ProgressEvent::PlanReady {
                     steps,
                     estimated_iterations,

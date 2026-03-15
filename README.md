@@ -453,6 +453,15 @@ curl -fsSL https://openkoi.ai/install.sh | sh
 
 Full documentation at [openkoi.ai](https://openkoi.ai).
 
+## Acknowledgments
+
+OpenKoi was built with significant help from AI coding assistants, including **Claude Code**, **Codex**, and **Gemini**.
+
+Several design patterns and implementations draw from the open source community:
+
+- **[OpenCode](https://github.com/anomalyco/opencode)** — The scout/explore subagent pattern, history compaction strategy (the `prune_messages()` implementation in `token_optimizer.rs` is modeled after OpenCode's `compaction.ts`), and permission rules system were inspired by or adapted from OpenCode's architecture. Model catalog data in the GitHub Copilot provider also references OpenCode's `models.dev/api.json` source.
+- **[OpenClaw](https://github.com/openclaw)** — The `.SKILL.md` skill format is OpenClaw-compatible, enabling skill portability across tools.
+
 ## License
 
 [MIT](LICENSE)

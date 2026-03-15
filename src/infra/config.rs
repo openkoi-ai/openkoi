@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 use crate::infra::paths;
+use crate::security::permission_rules::PermissionRule;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Config {
@@ -48,6 +49,17 @@ pub struct Config {
     /// HTTP API server settings (optional section in config.toml).
     #[serde(default)]
     pub api: Option<ApiConfig>,
+
+    /// Optional permission rules for tool call security.
+    /// User-defined rules are evaluated before the built-in defaults.
+    /// Example:
+    /// ```toml
+    /// [[permissions.rules]]
+    /// tool_pattern = "bash*"
+    /// action = "Deny"
+    /// ```
+    #[serde(default)]
+    pub permissions: PermissionsConfig,
 }
 
 /// Configuration for a custom OpenAI-compatible provider.
@@ -111,6 +123,7 @@ pub struct FallbackConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct IterationConfig {
     pub max_iterations: u8,
     pub quality_threshold: f32,
@@ -118,6 +131,9 @@ pub struct IterationConfig {
     pub timeout_seconds: u64,
     pub token_budget: u32,
     pub skip_eval_confidence: f32,
+    /// Enable the scout phase (read-only codebase reconnaissance before planning).
+    /// On by default. Automatically skipped for single-iteration tasks.
+    pub scout_enabled: bool,
 }
 
 impl Default for IterationConfig {
@@ -129,6 +145,7 @@ impl Default for IterationConfig {
             timeout_seconds: 300,
             token_budget: 200_000,
             skip_eval_confidence: 0.95,
+            scout_enabled: true,
         }
     }
 }
@@ -269,6 +286,17 @@ pub struct MsOfficeConfig {
     pub base_dir: Option<String>,
 }
 
+/// Optional `[permissions]` section in config.toml for user-defined permission rules.
+///
+/// User rules are evaluated before the built-in defaults (first match wins).
+/// If no user rules are defined, only the hardcoded defaults apply.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PermissionsConfig {
+    /// User-defined permission rules. Evaluated before built-in defaults.
+    #[serde(default)]
+    pub rules: Vec<PermissionRule>,
+}
+
 /// Optional `[daemon]` section in config.toml.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonTomlConfig {
@@ -365,6 +393,7 @@ mod tests {
         assert!(c.safety.abort_on_regression);
         assert!(c.patterns.enabled);
         assert!(c.memory.compaction);
+        assert!(c.iteration.scout_enabled);
     }
 
     #[test]
@@ -416,6 +445,7 @@ improvement_threshold = 0.1
 timeout_seconds = 600
 token_budget = 500000
 skip_eval_confidence = 0.99
+scout_enabled = false
 
 [safety]
 max_cost_usd = 5.0
@@ -443,6 +473,7 @@ auto_propose = false
         assert_eq!(config.iteration.max_iterations, 5);
         assert!((config.iteration.quality_threshold - 0.9).abs() < 0.001);
         assert_eq!(config.iteration.token_budget, 500_000);
+        assert!(!config.iteration.scout_enabled);
         assert!((config.safety.max_cost_usd - 5.0).abs() < 0.001);
         assert!(!config.safety.abort_on_regression);
         assert_eq!(config.safety.tool_loop.warning, 15);
@@ -450,6 +481,17 @@ auto_propose = false
         assert!((config.memory.learning_decay_rate - 0.1).abs() < 0.001);
         assert!(!config.patterns.enabled);
         assert!(!config.patterns.auto_propose);
+    }
+
+    #[test]
+    fn test_scout_enabled_default_true() {
+        // When not specified in TOML, scout_enabled defaults to true
+        let toml_str = r#"
+[iteration]
+max_iterations = 2
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(config.iteration.scout_enabled);
     }
 
     #[test]

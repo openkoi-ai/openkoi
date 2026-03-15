@@ -124,6 +124,9 @@ pub fn state_writer_progress(
         // Update live state
         if let Ok(mut state) = live.lock() {
             match &event {
+                ProgressEvent::ScoutComplete { .. } => {
+                    state.phase = "scouting".to_string();
+                }
                 ProgressEvent::PlanReady {
                     estimated_iterations,
                     ..

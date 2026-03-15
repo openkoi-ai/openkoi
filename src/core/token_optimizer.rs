@@ -244,6 +244,118 @@ impl TokenOptimizer {
         }
         refined
     }
+
+    /// Compact iteration history by summarizing old cycles into a single synthetic cycle.
+    ///
+    /// Activates when `cycles.len() >= 3` and the estimated token count exceeds
+    /// 70% of the context window. Replaces cycles `0..n-2` with a single compacted
+    /// cycle containing a text summary, keeping the last 2 cycles intact for
+    /// accurate delta feedback.
+    ///
+    /// Returns the compacted cycle list, or the original if compaction was not needed
+    /// or the summary would not save tokens.
+    pub fn compact_history(
+        &self,
+        cycles: &[IterationCycle],
+        context_window: u32,
+    ) -> Vec<IterationCycle> {
+        // Only compact when we have enough cycles and context pressure
+        if cycles.len() < 3 || context_window == 0 {
+            return cycles.to_vec();
+        }
+
+        // Estimate total tokens in cycle outputs
+        let total_cycle_tokens: u32 = cycles
+            .iter()
+            .filter_map(|c| c.output.as_ref())
+            .map(|o| estimate_tokens(&o.content))
+            .sum();
+
+        let threshold = (context_window as f64 * 0.7) as u32;
+        if total_cycle_tokens < threshold {
+            return cycles.to_vec();
+        }
+
+        // Protect the last 2 cycles — they have the most recent context
+        let split = cycles.len() - 2;
+        let old_cycles = &cycles[..split];
+        let recent_cycles = &cycles[split..];
+
+        // Build a text summary of the old cycles
+        let mut summary = String::from("## Compacted History (earlier iterations)\n\n");
+        for cycle in old_cycles {
+            summary.push_str(&format!("### Iteration {}\n", cycle.iteration + 1));
+
+            if let Some(ref output) = cycle.output {
+                // Include a brief excerpt of the output
+                let excerpt = if output.content.len() > 500 {
+                    format!("{}...", &output.content[..500])
+                } else {
+                    output.content.clone()
+                };
+                summary.push_str(&format!("Output: {}\n", excerpt));
+
+                if !output.files_modified.is_empty() {
+                    summary.push_str(&format!(
+                        "Files modified: {}\n",
+                        output.files_modified.join(", ")
+                    ));
+                }
+            }
+
+            if let Some(ref eval) = cycle.evaluation {
+                summary.push_str(&format!("Score: {:.2}\n", eval.score));
+                let unresolved: Vec<&Finding> = eval
+                    .findings
+                    .iter()
+                    .filter(|f| f.severity != Severity::Suggestion)
+                    .collect();
+                if !unresolved.is_empty() {
+                    summary.push_str("Findings:\n");
+                    for f in &unresolved {
+                        summary.push_str(&format!("  - [{}] {}\n", f.severity, f.title));
+                    }
+                }
+            }
+
+            summary.push_str(&format!("Decision: {}\n\n", cycle.decision));
+        }
+
+        // Check that the summary is actually smaller than what it replaces
+        let old_tokens: u32 = old_cycles
+            .iter()
+            .filter_map(|c| c.output.as_ref())
+            .map(|o| estimate_tokens(&o.content))
+            .sum();
+        let summary_tokens = estimate_tokens(&summary);
+
+        if summary_tokens >= old_tokens {
+            // Compaction wouldn't save tokens — skip
+            return cycles.to_vec();
+        }
+
+        // Build the compacted result
+        let task_id = cycles
+            .first()
+            .map(|c| c.task_id.as_str())
+            .unwrap_or("unknown");
+        let compacted_cycle = IterationCycle::from_summary(task_id, summary);
+
+        let mut result = vec![compacted_cycle];
+        result.extend_from_slice(recent_cycles);
+
+        tracing::info!(
+            old_cycles = old_cycles.len(),
+            old_tokens = old_tokens,
+            summary_tokens = summary_tokens,
+            "Compacted {} old cycles ({} -> {} tokens)",
+            old_cycles.len(),
+            old_tokens,
+            summary_tokens,
+        );
+
+        result
+    }
 }
 
 /// Prune messages to fit within a token budget.

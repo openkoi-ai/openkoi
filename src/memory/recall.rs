@@ -3,7 +3,7 @@ use crate::memory::store::LearningRow;
 use crate::memory::StoreHandle;
 
 /// Result of recalling relevant history for a task.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct HistoryRecall {
     pub anti_patterns: Vec<LearningRow>,
     pub skill_recommendations: Vec<String>,

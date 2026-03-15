@@ -169,6 +169,97 @@ impl Orchestrator {
         }
     }
 
+    /// Scout the codebase with read-only tools before planning.
+    ///
+    /// Returns the scout output text (to be injected into conversation history),
+    /// or `None` if scouting produced no useful output.
+    async fn scout(
+        &mut self,
+        task: &TaskInput,
+        ctx: &SessionContext,
+        mcp: &mut Option<&mut McpManager>,
+        integrations: Option<&IntegrationRegistry>,
+        budget: &mut TokenBudget,
+    ) -> Option<String> {
+        // Budget the scout at 1/10 of the total token budget
+        let _scout_budget = self.config.token_budget / 10;
+
+        let scout_prompt = format!(
+            "You are a codebase scout. Your job is to do a quick, read-only reconnaissance of the project \
+             to help plan the following task:\n\n\
+             Task: {}\n\n\
+             Use the available read-only tools (grep, glob, read, list, search) to:\n\
+             1. Find files and functions relevant to the task\n\
+             2. Understand the project structure in the affected area\n\
+             3. Identify any existing patterns, tests, or conventions\n\n\
+             Be concise. Summarize what you found in a few paragraphs. \
+             Do NOT make any changes — only read and report.",
+            task.description
+        );
+
+        let scout_context = ExecutionContext {
+            system: scout_prompt,
+            messages: vec![],
+            token_estimate: 0,
+        };
+
+        let mcp_ref = mcp.as_deref_mut();
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            self.executor
+                .execute_readonly(&scout_context, &ctx.tools, mcp_ref, integrations),
+        )
+        .await
+        {
+            Ok(Ok(output)) => {
+                budget.deduct(&output.usage);
+                // Record cost
+                if let Some(ref info) = self.executor_model_info {
+                    self.cost_tracker.record_with_model_info_and_phase(
+                        info,
+                        &output.usage,
+                        "scout",
+                    );
+                } else {
+                    self.cost_tracker
+                        .record_with_phase(&self.executor_model_id, &output.usage, "scout");
+                }
+
+                self.emit(ProgressEvent::ScoutComplete {
+                    tools_used: output.tools_used.len(),
+                    tokens_used: output.usage.total(),
+                });
+
+                let content = output.content.trim().to_string();
+                if content.is_empty() || content.len() < 20 {
+                    tracing::debug!("Scout produced no useful output, skipping");
+                    None
+                } else {
+                    // Cap scout output to avoid bloating the context
+                    let capped = if content.len() > 4000 {
+                        format!("{}... [scout output truncated]", &content[..4000])
+                    } else {
+                        content
+                    };
+                    tracing::info!(
+                        tokens = output.usage.total(),
+                        tools = output.tools_used.len(),
+                        "Scout phase complete"
+                    );
+                    Some(capped)
+                }
+            }
+            Ok(Err(e)) => {
+                tracing::warn!("Scout phase failed: {}. Continuing without scout.", e);
+                None
+            }
+            Err(_) => {
+                tracing::warn!("Scout phase timed out (30s). Continuing without scout.");
+                None
+            }
+        }
+    }
+
     /// Run the full iteration loop for a task.
     ///
     /// `mcp` is passed as `Option<&mut McpManager>` so tool calls from the model
@@ -212,6 +303,37 @@ impl Orchestrator {
                 .await;
         }
 
+        // 1b. Scout phase — read-only codebase reconnaissance
+        // Only runs if enabled AND we have multiple iterations (no point scouting a one-shot)
+        let scout_context = if self.config.scout_enabled && self.config.max_iterations > 1 {
+            self.scout(&task, ctx, &mut mcp, integrations, &mut budget)
+                .await
+        } else {
+            None
+        };
+
+        // Inject scout findings into conversation history for the planner
+        let ctx_with_scout;
+        let effective_ctx = if let Some(ref scout_output) = scout_context {
+            ctx_with_scout = SessionContext {
+                soul: ctx.soul.clone(),
+                ranked_skills: ctx.ranked_skills.clone(),
+                recall: ctx.recall.clone(),
+                tools: ctx.tools.clone(),
+                skill_registry: ctx.skill_registry.clone(),
+                conversation_history: Some(match &ctx.conversation_history {
+                    Some(existing) => format!(
+                        "{}\n\n## Codebase Scout (auto-generated)\n{}",
+                        existing, scout_output
+                    ),
+                    None => format!("## Codebase Scout (auto-generated)\n{}", scout_output),
+                }),
+            };
+            &ctx_with_scout
+        } else {
+            ctx
+        };
+
         // Emit plan ready
         self.emit(ProgressEvent::PlanReady {
             steps: plan.steps.len(),
@@ -229,18 +351,26 @@ impl Orchestrator {
             });
 
             // Build context (compressed on iteration 2+, with overflow prevention)
+            // First, compact history if context pressure is detected (Phase 2)
+            let effective_cycles = if self.context_window > 0 {
+                self.token_optimizer
+                    .compact_history(&cycles, self.context_window)
+            } else {
+                cycles.clone()
+            };
+
             let context = if self.context_window > 0 {
                 let (ctx, pruned) = self.token_optimizer.build_context_safe(
                     &task,
                     &plan,
-                    &cycles,
-                    &ctx.soul,
-                    &ctx.ranked_skills,
-                    &ctx.recall,
-                    &ctx.tools,
-                    &ctx.skill_registry,
+                    &effective_cycles,
+                    &effective_ctx.soul,
+                    &effective_ctx.ranked_skills,
+                    &effective_ctx.recall,
+                    &effective_ctx.tools,
+                    &effective_ctx.skill_registry,
                     self.context_window,
-                    ctx.conversation_history.as_deref(),
+                    effective_ctx.conversation_history.as_deref(),
                 );
                 if pruned {
                     tracing::info!(
@@ -254,13 +384,13 @@ impl Orchestrator {
                 self.token_optimizer.build_context_with_history(
                     &task,
                     &plan,
-                    &cycles,
-                    &ctx.soul,
-                    &ctx.ranked_skills,
-                    &ctx.recall,
-                    &ctx.tools,
-                    &ctx.skill_registry,
-                    ctx.conversation_history.as_deref(),
+                    &effective_cycles,
+                    &effective_ctx.soul,
+                    &effective_ctx.ranked_skills,
+                    &effective_ctx.recall,
+                    &effective_ctx.tools,
+                    &effective_ctx.skill_registry,
+                    effective_ctx.conversation_history.as_deref(),
                 )
             };
 
@@ -268,7 +398,7 @@ impl Orchestrator {
             let mcp_ref = mcp.as_deref_mut();
             match self
                 .executor
-                .execute(&context, &ctx.tools, mcp_ref, integrations)
+                .execute(&context, &effective_ctx.tools, mcp_ref, integrations)
                 .await
             {
                 Ok(output) => {

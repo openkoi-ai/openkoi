@@ -10,6 +10,7 @@ use crate::infra::errors::OpenKoiError;
 use crate::integrations::registry::IntegrationRegistry;
 use crate::plugins::mcp::McpManager;
 use crate::provider::{ChatRequest, Message, ModelProvider, StopReason, ToolDef};
+use crate::security::permission_rules::{self, Action, PermissionRule};
 
 /// Maximum number of tool-call round-trips per execution to prevent infinite loops.
 const MAX_TOOL_ROUNDS: usize = 20;
@@ -35,6 +36,8 @@ pub struct Executor {
     tool_loop_warning: u32,
     tool_loop_critical: u32,
     tool_loop_circuit_breaker: u32,
+    /// Permission rules evaluated before tool dispatch.
+    permission_rules: Vec<PermissionRule>,
 }
 
 impl Executor {
@@ -46,6 +49,7 @@ impl Executor {
             tool_loop_warning: 50,
             tool_loop_critical: 80,
             tool_loop_circuit_breaker: 100,
+            permission_rules: permission_rules::default_rules(),
         }
     }
 
@@ -62,6 +66,12 @@ impl Executor {
         self
     }
 
+    /// Configure permission rules (merges user rules with defaults).
+    pub fn with_permission_rules(mut self, user_rules: Vec<PermissionRule>) -> Self {
+        self.permission_rules = permission_rules::merge_rules(&user_rules);
+        self
+    }
+
     /// Check tool loop status based on accumulated tool calls.
     fn check_tool_loop(&self, tool_call_count: u32) -> ToolLoopStatus {
         if tool_call_count >= self.tool_loop_circuit_breaker {
@@ -75,6 +85,38 @@ impl Executor {
         }
     }
 
+    /// Execute in read-only mode for the scout phase.
+    ///
+    /// Filters the tool set to read-only tools (grep, glob, read, list, search, etc.)
+    /// and caps the tool round-trips at 5 to keep the scout fast and cheap.
+    pub async fn execute_readonly(
+        &self,
+        context: &ExecutionContext,
+        tools: &[ToolDef],
+        mcp: Option<&mut McpManager>,
+        integrations: Option<&IntegrationRegistry>,
+    ) -> Result<ExecutionOutput, OpenKoiError> {
+        let readonly_tools: Vec<ToolDef> = tools
+            .iter()
+            .filter(|t| is_readonly_tool(&t.name))
+            .cloned()
+            .collect();
+
+        // If no read-only tools are available, return empty output (scout is a no-op)
+        if readonly_tools.is_empty() {
+            return Ok(ExecutionOutput {
+                content: String::new(),
+                usage: crate::provider::TokenUsage::default(),
+                tool_calls_made: 0,
+                files_modified: vec![],
+                tools_used: vec![],
+            });
+        }
+
+        self.execute_with_limit(context, &readonly_tools, mcp, integrations, 5)
+            .await
+    }
+
     /// Execute a task given the prepared context.
     ///
     /// Tool calls are dispatched to:
@@ -86,6 +128,19 @@ impl Executor {
         tools: &[ToolDef],
         mcp: Option<&mut McpManager>,
         integrations: Option<&IntegrationRegistry>,
+    ) -> Result<ExecutionOutput, OpenKoiError> {
+        self.execute_with_limit(context, tools, mcp, integrations, MAX_TOOL_ROUNDS)
+            .await
+    }
+
+    /// Core execution loop shared by `execute()` and `execute_readonly()`.
+    async fn execute_with_limit(
+        &self,
+        context: &ExecutionContext,
+        tools: &[ToolDef],
+        mcp: Option<&mut McpManager>,
+        integrations: Option<&IntegrationRegistry>,
+        max_rounds: usize,
     ) -> Result<ExecutionOutput, OpenKoiError> {
         // On iteration 0 there are no conversation messages, so we send a
         // single user message prompting the model to begin.
@@ -104,7 +159,7 @@ impl Executor {
         // We need to reborrow mcp across loop iterations
         let mut mcp = mcp;
 
-        for _round in 0..MAX_TOOL_ROUNDS {
+        for _round in 0..max_rounds {
             let request = ChatRequest {
                 model: self.model_id.clone(),
                 messages: messages.clone(),
@@ -153,6 +208,26 @@ impl Executor {
                 // Track distinct tool names
                 if !tools_used.contains(&tc.name) {
                     tools_used.push(tc.name.clone());
+                }
+
+                // Permission check: evaluate rules before dispatching
+                let path = permission_rules::extract_path_from_args(&tc.arguments);
+                let action =
+                    permission_rules::evaluate(&tc.name, path.as_deref(), &self.permission_rules);
+                if action == Action::Deny {
+                    tracing::warn!(
+                        tool = %tc.name,
+                        path = ?path,
+                        "Permission denied by rule — tool call blocked",
+                    );
+                    let deny_msg = format!(
+                        "Permission denied: tool '{}' is not allowed to operate on '{}'. \
+                         This file is protected by security rules. Choose a different approach.",
+                        tc.name,
+                        path.as_deref().unwrap_or("(unknown path)")
+                    );
+                    messages.push(Message::tool_result(&tc.id, &deny_msg));
+                    continue;
                 }
 
                 let result = dispatch_tool_call(tc, &mut mcp, integrations).await;
@@ -360,4 +435,71 @@ fn extract_file_path_from_tool_call(tc: &crate::provider::ToolCall) -> Option<St
     }
 
     None
+}
+
+/// Check whether a tool name corresponds to a read-only operation.
+///
+/// Used by `execute_readonly()` to filter the tool set for the scout phase.
+/// MCP tools (e.g., `server__read_file`) have the server prefix stripped before matching.
+fn is_readonly_tool(name: &str) -> bool {
+    // Strip MCP server prefix if present
+    let bare = name.split("__").last().unwrap_or(name).to_lowercase();
+
+    // Known read-only tool name patterns
+    const READONLY_PATTERNS: &[&str] = &[
+        "read",
+        "grep",
+        "glob",
+        "search",
+        "find",
+        "list",
+        "ls",
+        "cat",
+        "tree",
+        "view",
+        "show",
+        "describe",
+        "stat",
+        "head",
+        "tail",
+        "wc",
+        "diff",
+        "ast_grep",
+    ];
+
+    READONLY_PATTERNS.iter().any(|p| bare.contains(p))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_readonly_tool_basic() {
+        assert!(is_readonly_tool("read_file"));
+        assert!(is_readonly_tool("grep_search"));
+        assert!(is_readonly_tool("list_dir"));
+        assert!(is_readonly_tool("find_by_name"));
+        assert!(is_readonly_tool("view_file"));
+    }
+
+    #[test]
+    fn test_is_readonly_tool_mcp_namespaced() {
+        assert!(is_readonly_tool("server__read_file"));
+        assert!(is_readonly_tool("myserver__grep"));
+        assert!(!is_readonly_tool("server__write_file"));
+        assert!(!is_readonly_tool("server__edit_file"));
+    }
+
+    #[test]
+    fn test_is_readonly_tool_write_tools_excluded() {
+        assert!(!is_readonly_tool("write_file"));
+        assert!(!is_readonly_tool("create_file"));
+        assert!(!is_readonly_tool("edit_file"));
+        assert!(!is_readonly_tool("patch_file"));
+        assert!(!is_readonly_tool("str_replace_editor"));
+        assert!(!is_readonly_tool("append_file"));
+        assert!(!is_readonly_tool("bash"));
+        assert!(!is_readonly_tool("execute_command"));
+    }
 }

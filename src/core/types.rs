@@ -21,6 +21,9 @@ pub struct IterationCycle {
     pub skills_used: Vec<String>,
     pub category: Option<String>,
     pub created_at: DateTime<Utc>,
+    /// Whether this cycle is a compacted summary of earlier cycles.
+    #[serde(default)]
+    pub is_compacted: bool,
 }
 
 impl IterationCycle {
@@ -38,6 +41,35 @@ impl IterationCycle {
             skills_used: Vec::new(),
             category: task.category.clone(),
             created_at: Utc::now(),
+            is_compacted: false,
+        }
+    }
+
+    /// Create a compacted cycle that summarizes earlier iteration cycles.
+    ///
+    /// Used by history compaction to replace multiple old cycles with a single
+    /// summary, preserving the gist while reducing token count.
+    pub fn from_summary(task_id: &str, summary: String) -> Self {
+        Self {
+            id: crate::util::new_id(),
+            task_id: task_id.to_string(),
+            iteration: 0,
+            phase: Phase::Complete,
+            output: Some(ExecutionOutput {
+                content: summary,
+                usage: TokenUsage::default(),
+                tool_calls_made: 0,
+                files_modified: vec![],
+                tools_used: vec![],
+            }),
+            evaluation: None,
+            decision: IterationDecision::Accept,
+            usage: TokenUsage::default(),
+            duration: Duration::ZERO,
+            skills_used: Vec::new(),
+            category: None,
+            created_at: Utc::now(),
+            is_compacted: true,
         }
     }
 
@@ -195,6 +227,8 @@ pub struct TaskResult {
 /// These are consumed by the CLI progress renderer (or any callback).
 #[derive(Debug, Clone)]
 pub enum ProgressEvent {
+    /// The scout phase completed (read-only codebase reconnaissance).
+    ScoutComplete { tools_used: usize, tokens_used: u32 },
     /// The initial plan has been built.
     PlanReady {
         steps: usize,
